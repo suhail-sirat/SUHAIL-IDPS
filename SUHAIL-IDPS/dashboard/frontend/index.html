@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IDS Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+<h1>Real-Time IDS Dashboard</h1>
+
+<div>
+    <h3>Stats</h3>
+    <p id="stats"></p>
+</div>
+
+<canvas id="chart"></canvas>
+
+<script>
+
+async function fetchStats() {
+    let res = await fetch("http://localhost:5000/stats");
+    let data = await res.json();
+
+    document.getElementById("stats").innerHTML =
+        JSON.stringify(data, null, 2);
+}
+
+setInterval(fetchStats, 2000);
+
+</script>
+
+</body>
+</html>
