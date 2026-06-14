@@ -1,3 +1,18 @@
+"""SUHAIL-IDPS dashboard backend.
+
+A Flask app that drives the live three-barrier IDPS:
+
+* enumerates this machine's network interfaces and lets the operator capture
+  live traffic from any of them with optional BPF source filtering,
+* replays the bundled labelled datasets for demos / testing,
+* streams every scored packet to the dashboard over Server-Sent Events,
+* keeps rolling statistics, an alert feed and per-source intelligence,
+* applies the prevention policy (auto-block via iptables, with a dry-run mode),
+* exposes persisted settings, NDJSON event export and per-flow drill-down.
+
+Run:  python dashboard/backend/app.py   (root needed for live capture / iptables)
+"""
+
 from __future__ import annotations
 
 import csv
@@ -18,18 +33,19 @@ from flask import Flask, Response, jsonify, request, send_file, stream_with_cont
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.core import config  # noqa: E402
+from src.core.config import settings  # noqa: E402
 from src.core.decision_engine import engine  # noqa: E402
 from src.core.features import DEFAULT_FEATURES  # noqa: E402
 
-
 app = Flask(__name__)
 
-FRONTEND_PATH = PROJECT_ROOT / "dashboard" / "frontend" / "index.html"
-DATA_DIR = PROJECT_ROOT / "data" / "raw"
-NORMAL_FILE = DATA_DIR / "normal_processed.csv"
-ATTACK_FILE = DATA_DIR / "attack_processed.csv"
+FRONTEND_DIR = PROJECT_ROOT / "dashboard" / "frontend"
+NORMAL_FILE = config.DATA_DIR / "normal_processed.csv"
+ATTACK_FILE = config.DATA_DIR / "attack_processed.csv"
 
-EVENTS = deque(maxlen=1000)
+EVENTS: deque[dict[str, Any]] = deque(maxlen=2000)
+ALERTS: deque[dict[str, Any]] = deque(maxlen=500)
 SUBSCRIBERS: list[queue.Queue] = []
 LOCK = threading.Lock()
 
@@ -40,14 +56,10 @@ REPLAY_THREAD: threading.Thread | None = None
 REPLAY_STOP = threading.Event()
 CAPTURE_THREAD: threading.Thread | None = None
 CAPTURE_STOP = threading.Event()
+CAPTURE_INFO: dict[str, Any] = {"interface": None, "filter": None}
 
-CONFIG = {
-    "auto_block": False,
-    "dry_run": True,
-    "block_threshold": 5,
-    "block_duration_seconds": 300,
-    "event_limit": 1000,
-}
+# 60-second resolution rolling throughput buckets (last 30 min).
+THROUGHPUT = deque(maxlen=1800)
 
 STATS = {
     "total": 0,
@@ -55,15 +67,22 @@ STATS = {
     "suspicious": 0,
     "attacks": 0,
     "unknown": 0,
+    "by_status_minute": defaultdict(lambda: {"normal": 0, "suspicious": 0, "attacks": 0}),
     "model_alerts": Counter(),
-    "by_source": defaultdict(lambda: {"total": 0, "attacks": 0, "suspicious": 0}),
-    "recent_timestamps": deque(maxlen=300),
+    "by_source": defaultdict(
+        lambda: {"total": 0, "attacks": 0, "suspicious": 0, "last_seen": None}
+    ),
+    "by_protocol": Counter(),
+    "recent_timestamps": deque(maxlen=600),
 }
 
 BLOCKED: dict[str, dict[str, Any]] = {}
 SOURCE_ALERTS = Counter()
 
 
+# --------------------------------------------------------------------------- #
+# CORS + static
+# --------------------------------------------------------------------------- #
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -75,9 +94,21 @@ def add_cors_headers(response):
 
 @app.route("/")
 def dashboard():
-    return send_file(FRONTEND_PATH)
+    return send_file(FRONTEND_DIR / "index.html")
 
 
+@app.route("/<path:page>")
+def static_page(page: str):
+    candidate = (FRONTEND_DIR / page).resolve()
+    # prevent path traversal outside the frontend dir
+    if FRONTEND_DIR in candidate.parents and candidate.is_file():
+        return send_file(candidate)
+    return send_file(FRONTEND_DIR / "index.html")
+
+
+# --------------------------------------------------------------------------- #
+# Health / status
+# --------------------------------------------------------------------------- #
 @app.route("/api/health")
 def health():
     return jsonify(
@@ -88,24 +119,59 @@ def health():
             "capture": capture_status(),
             "replay": replay_status(),
             "prevention": prevention_status(),
+            "settings": settings.snapshot(),
         }
     )
 
 
-@app.route("/api/config", methods=["GET", "POST", "OPTIONS"])
-def config():
+@app.route("/api/interfaces")
+def interfaces():
+    return jsonify({"interfaces": list_interfaces()})
+
+
+# --------------------------------------------------------------------------- #
+# Settings (thresholds + policy), persisted
+# --------------------------------------------------------------------------- #
+@app.route("/api/settings", methods=["GET", "POST", "OPTIONS"])
+def settings_route():
     if request.method == "OPTIONS":
         return ("", 204)
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
-        for key in CONFIG:
-            if key in payload:
-                CONFIG[key] = payload[key]
         if "thresholds" in payload:
-            engine.update_thresholds(payload["thresholds"])
-    return jsonify({"config": CONFIG, "thresholds": engine.thresholds})
+            settings.update_thresholds(payload["thresholds"])
+        if "policy" in payload:
+            settings.update_policy(payload["policy"])
+    return jsonify(settings.snapshot())
 
 
+# Backwards-compatible alias used by older clients.
+@app.route("/api/config", methods=["GET", "POST", "OPTIONS"])
+def config_route():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        policy_keys = set(config.DEFAULT_POLICY)
+        policy = {k: payload[k] for k in policy_keys if k in payload}
+        if policy:
+            settings.update_policy(policy)
+        if "thresholds" in payload:
+            settings.update_thresholds(payload["thresholds"])
+    snap = settings.snapshot()
+    return jsonify({"config": snap["policy"], "thresholds": snap["thresholds"]})
+
+
+@app.route("/api/reload", methods=["POST", "OPTIONS"])
+def reload_models():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    return jsonify(engine.reload_models())
+
+
+# --------------------------------------------------------------------------- #
+# Stats / events / alerts
+# --------------------------------------------------------------------------- #
 @app.route("/api/stats")
 def stats():
     cleanup_expired_blocks()
@@ -122,8 +188,11 @@ def stats():
             "attack_rate": round(STATS["attacks"] / total, 4),
             "packets_per_minute": len(recent),
             "model_alerts": dict(STATS["model_alerts"]),
+            "by_protocol": dict(STATS["by_protocol"]),
             "top_sources": top_sources(),
             "blocked_count": len(BLOCKED),
+            "alert_count": len(ALERTS),
+            "throughput": list(THROUGHPUT)[-60:],
             "uptime_seconds": round(now - STARTED_AT, 1),
         }
     return jsonify(payload)
@@ -131,9 +200,49 @@ def stats():
 
 @app.route("/api/events")
 def events():
-    limit = min(int(request.args.get("limit", 100)), CONFIG["event_limit"])
+    limit = min(int(request.args.get("limit", 100)), settings.policy["event_limit"])
+    status_filter = request.args.get("status")
+    source_filter = request.args.get("source")
     with LOCK:
-        return jsonify(list(EVENTS)[-limit:])
+        items = list(EVENTS)
+    if status_filter and status_filter != "all":
+        items = [e for e in items if e["result"]["status"] == status_filter]
+    if source_filter:
+        items = [
+            e
+            for e in items
+            if (e["metadata"].get("src_ip") or e["metadata"].get("source")) == source_filter
+        ]
+    return jsonify(items[-limit:])
+
+
+@app.route("/api/events/export")
+def export_events():
+    """Download the current event buffer as newline-delimited JSON."""
+    with LOCK:
+        items = list(EVENTS)
+    body = "\n".join(json.dumps(e) for e in items)
+    filename = f"idps-events-{int(time.time())}.ndjson"
+    return Response(
+        body,
+        mimetype="application/x-ndjson",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.route("/api/alerts")
+def alerts():
+    limit = min(int(request.args.get("limit", 100)), 500)
+    with LOCK:
+        return jsonify(list(ALERTS)[-limit:])
+
+
+@app.route("/api/flow/<path:flow_key>")
+def flow_detail(flow_key: str):
+    """Return the recent events that belong to one flow for drill-down."""
+    with LOCK:
+        items = [e for e in EVENTS if e["result"].get("flow_key") == flow_key]
+    return jsonify(items[-100:])
 
 
 @app.route("/api/analyze", methods=["POST", "OPTIONS"])
@@ -148,6 +257,9 @@ def analyze():
     return jsonify(event)
 
 
+# --------------------------------------------------------------------------- #
+# Replay control
+# --------------------------------------------------------------------------- #
 @app.route("/api/replay/start", methods=["POST", "OPTIONS"])
 def start_replay():
     global REPLAY_THREAD
@@ -163,9 +275,7 @@ def start_replay():
 
     REPLAY_STOP.clear()
     REPLAY_THREAD = threading.Thread(
-        target=replay_packets,
-        args=(profile, max(speed, 1.0), limit),
-        daemon=True,
+        target=replay_packets, args=(profile, max(speed, 1.0), limit), daemon=True
     )
     REPLAY_THREAD.start()
     return jsonify(replay_status())
@@ -184,6 +294,9 @@ def replay_state():
     return jsonify(replay_status())
 
 
+# --------------------------------------------------------------------------- #
+# Live capture control
+# --------------------------------------------------------------------------- #
 @app.route("/api/capture/start", methods=["POST", "OPTIONS"])
 def start_capture():
     global CAPTURE_THREAD
@@ -194,13 +307,13 @@ def start_capture():
 
     payload = request.get_json(silent=True) or {}
     interface = payload.get("interface") or None
-    bpf_filter = payload.get("filter", "ip")
+    bpf_filter = build_bpf(payload)
 
+    CAPTURE_INFO["interface"] = interface or "all"
+    CAPTURE_INFO["filter"] = bpf_filter
     CAPTURE_STOP.clear()
     CAPTURE_THREAD = threading.Thread(
-        target=capture_packets,
-        args=(interface, bpf_filter),
-        daemon=True,
+        target=capture_packets, args=(interface, bpf_filter), daemon=True
     )
     CAPTURE_THREAD.start()
     return jsonify(capture_status())
@@ -219,6 +332,9 @@ def capture_state():
     return jsonify(capture_status())
 
 
+# --------------------------------------------------------------------------- #
+# Prevention
+# --------------------------------------------------------------------------- #
 @app.route("/api/blocked")
 def blocked():
     cleanup_expired_blocks()
@@ -245,17 +361,24 @@ def unblock_ip_route():
     return jsonify(unblock_ip(ip))
 
 
+# --------------------------------------------------------------------------- #
+# Live SSE stream
+# --------------------------------------------------------------------------- #
 @app.route("/api/stream")
 def stream():
-    subscriber = queue.Queue(maxsize=100)
+    subscriber = queue.Queue(maxsize=200)
     SUBSCRIBERS.append(subscriber)
 
     def generate():
         try:
             yield "event: hello\ndata: {}\n\n"
             while True:
-                item = subscriber.get()
-                yield f"event: packet\ndata: {json.dumps(item)}\n\n"
+                try:
+                    item = subscriber.get(timeout=15)
+                    yield f"event: packet\ndata: {json.dumps(item)}\n\n"
+                except queue.Empty:
+                    # keep-alive comment so proxies don't drop the connection
+                    yield ": keep-alive\n\n"
         except GeneratorExit:
             pass
         finally:
@@ -265,6 +388,9 @@ def stream():
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 
+# --------------------------------------------------------------------------- #
+# Core packet processing
+# --------------------------------------------------------------------------- #
 def process_packet(
     packet: dict[str, Any],
     metadata: dict[str, Any] | None = None,
@@ -295,30 +421,69 @@ def process_packet(
 
 def record_event(event: dict[str, Any]) -> None:
     status = event["result"]["status"]
-    source_ip = event["metadata"].get("src_ip") or event["metadata"].get("source") or "unknown"
+    metadata = event["metadata"]
+    source_ip = metadata.get("src_ip") or metadata.get("source") or "unknown"
+    protocol = metadata.get("protocol") or "ip"
+    minute = int(time.time() // 60)
 
     with LOCK:
         EVENTS.append(event)
         STATS["total"] += 1
         STATS["recent_timestamps"].append(time.time())
+        STATS["by_protocol"][str(protocol)] += 1
+
         if status == "NORMAL":
             STATS["normal"] += 1
         elif status == "SUSPICIOUS":
             STATS["suspicious"] += 1
+            STATS["by_status_minute"][minute]["suspicious"] += 1
         elif status == "ATTACK":
             STATS["attacks"] += 1
+            STATS["by_status_minute"][minute]["attacks"] += 1
         else:
             STATS["unknown"] += 1
+        if status in ("NORMAL",):
+            STATS["by_status_minute"][minute]["normal"] += 1
 
-        STATS["by_source"][source_ip]["total"] += 1
+        src = STATS["by_source"][source_ip]
+        src["total"] += 1
+        src["last_seen"] = event["timestamp"]
         if status == "ATTACK":
-            STATS["by_source"][source_ip]["attacks"] += 1
+            src["attacks"] += 1
         if status == "SUSPICIOUS":
-            STATS["by_source"][source_ip]["suspicious"] += 1
+            src["suspicious"] += 1
 
         for name, barrier in event["result"]["barriers"].items():
             if barrier["state"] == "ALERT":
                 STATS["model_alerts"][name] += 1
+
+        if status in ("ATTACK", "SUSPICIOUS"):
+            ALERTS.append(
+                {
+                    "id": event["id"],
+                    "timestamp": event["timestamp"],
+                    "status": status,
+                    "severity": event["result"]["severity"],
+                    "src_ip": source_ip,
+                    "dst_ip": metadata.get("dst_ip", "unknown"),
+                    "protocol": str(protocol),
+                    "threat_score": event["result"]["threat_score"],
+                    "reason": event["result"]["reason"],
+                    "flow_key": event["result"].get("flow_key"),
+                    "action": event["action"].get("type"),
+                }
+            )
+
+        # roll up a per-second throughput sample
+        sec = int(time.time())
+        if THROUGHPUT and THROUGHPUT[-1]["t"] == sec:
+            THROUGHPUT[-1]["count"] += 1
+            if status == "ATTACK":
+                THROUGHPUT[-1]["attacks"] += 1
+        else:
+            THROUGHPUT.append(
+                {"t": sec, "count": 1, "attacks": 1 if status == "ATTACK" else 0}
+            )
 
 
 def publish(event: dict[str, Any]) -> None:
@@ -335,14 +500,14 @@ def publish(event: dict[str, Any]) -> None:
 
 def maybe_respond(metadata: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     source_ip = metadata.get("src_ip") or metadata.get("source")
+    policy = settings.policy
     if not source_ip:
         return {"type": "observe", "message": "No source IP available."}
-
     if result["status"] not in {"ATTACK", "SUSPICIOUS"}:
         return {"type": "observe", "message": "Below response threshold."}
 
     SOURCE_ALERTS[source_ip] += 1
-    if CONFIG["auto_block"] and SOURCE_ALERTS[source_ip] >= int(CONFIG["block_threshold"]):
+    if policy["auto_block"] and SOURCE_ALERTS[source_ip] >= int(policy["block_threshold"]):
         return block_ip(source_ip, reason=f"{SOURCE_ALERTS[source_ip]} alerts")
     return {
         "type": "watch",
@@ -351,19 +516,21 @@ def maybe_respond(metadata: dict[str, Any], result: dict[str, Any]) -> dict[str,
 
 
 def block_ip(ip: str, reason: str) -> dict[str, Any]:
-    expires_at = time.time() + int(CONFIG["block_duration_seconds"])
+    policy = settings.policy
+    expires_at = time.time() + int(policy["block_duration_seconds"])
     entry = {
         "ip": ip,
         "reason": reason,
-        "dry_run": bool(CONFIG["dry_run"]),
+        "dry_run": bool(policy["dry_run"]),
         "blocked_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
         "active": True,
     }
-
-    if not CONFIG["dry_run"]:
+    if not policy["dry_run"]:
         try:
-            subprocess.run(["iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"], check=True)
+            subprocess.run(
+                ["iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"], check=True
+            )
         except Exception as exc:
             entry["active"] = False
             entry["error"] = str(exc)
@@ -376,7 +543,9 @@ def unblock_ip(ip: str) -> dict[str, Any]:
     entry = BLOCKED.pop(ip, None)
     if entry and not entry.get("dry_run"):
         try:
-            subprocess.run(["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"], check=True)
+            subprocess.run(
+                ["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"], check=True
+            )
         except Exception as exc:
             return {"type": "unblock", "ip": ip, "active": False, "error": str(exc)}
     return {"type": "unblock", "ip": ip, "active": False}
@@ -385,18 +554,26 @@ def unblock_ip(ip: str) -> dict[str, Any]:
 def cleanup_expired_blocks() -> None:
     now = time.time()
     for ip, entry in list(BLOCKED.items()):
-        expires = datetime.fromisoformat(entry["expires_at"]).timestamp()
+        try:
+            expires = datetime.fromisoformat(entry["expires_at"]).timestamp()
+        except (ValueError, KeyError):
+            continue
         if expires <= now:
             unblock_ip(ip)
 
 
 def top_sources() -> list[dict[str, Any]]:
-    rows = []
-    for ip, values in STATS["by_source"].items():
-        rows.append({"ip": ip, **values})
-    return sorted(rows, key=lambda row: (row["attacks"], row["suspicious"], row["total"]), reverse=True)[:8]
+    rows = [{"ip": ip, **values} for ip, values in STATS["by_source"].items()]
+    return sorted(
+        rows,
+        key=lambda row: (row["attacks"], row["suspicious"], row["total"]),
+        reverse=True,
+    )[:10]
 
 
+# --------------------------------------------------------------------------- #
+# Replay
+# --------------------------------------------------------------------------- #
 def replay_packets(profile: str, speed: float, limit: int) -> None:
     files = []
     if profile in {"normal", "mixed"}:
@@ -404,14 +581,13 @@ def replay_packets(profile: str, speed: float, limit: int) -> None:
     if profile in {"attack", "mixed"}:
         files.append((ATTACK_FILE, "attack-replay"))
 
-    readers = []
     handles = []
+    readers = []
     try:
         for path, label in files:
             handle = path.open(newline="")
             handles.append(handle)
-            reader = csv.DictReader(handle)
-            readers.append((reader, label))
+            readers.append((csv.DictReader(handle), label))
 
         emitted = 0
         delay = 1.0 / speed
@@ -441,15 +617,59 @@ def replay_packets(profile: str, speed: float, limit: int) -> None:
 
 
 def replay_metadata(row: dict[str, Any], label: str) -> dict[str, Any]:
-    source_octet = int(float(row.get("frame.number", 1))) % 240 + 10
+    # Use a small, stable pool of source hosts so consecutive packets share a
+    # flow key and accumulate enough sequence context for the transformer
+    # (context) barrier to engage - otherwise every packet looks like a brand
+    # new flow and the broader-view barrier never sees a window.
+    is_attack = label.startswith("attack")
+    host = int(float(row.get("frame.number", 1) or 1)) % 6 + 10
     return {
-        "src_ip": f"10.10.{1 if label.startswith('attack') else 2}.{source_octet}",
+        "src_ip": f"10.10.{1 if is_attack else 2}.{host}",
         "dst_ip": "10.10.0.5",
         "protocol": protocol_name(row.get("ip.proto")),
         "src_port": int(float(row.get("tcp.srcport") or row.get("udp.srcport") or 0)),
         "dst_port": int(float(row.get("tcp.dstport") or row.get("udp.dstport") or 0)),
         "label": label,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Live capture (scapy)
+# --------------------------------------------------------------------------- #
+def build_bpf(payload: dict[str, Any]) -> str:
+    """Compose a BPF filter from the dashboard's source-filter controls."""
+    base = payload.get("filter") or "ip"
+    src = payload.get("source_ip")
+    proto = payload.get("protocol")  # tcp | udp | icmp
+    parts = [base]
+    if proto and proto in {"tcp", "udp", "icmp"}:
+        parts.append(proto)
+    if src:
+        parts.append(f"src host {src}")
+    return " and ".join(parts)
+
+
+def list_interfaces() -> list[dict[str, Any]]:
+    try:
+        from scapy.all import get_if_list
+    except Exception as exc:  # scapy unavailable
+        return [{"name": "any", "address": "", "error": str(exc)}]
+
+    try:
+        from scapy.arch import get_if_addr
+    except Exception:
+        get_if_addr = None
+
+    out = []
+    for name in get_if_list():
+        address = ""
+        if get_if_addr:
+            try:
+                address = get_if_addr(name)
+            except Exception:
+                address = ""
+        out.append({"name": name, "address": address})
+    return out
 
 
 def capture_packets(interface: str | None, bpf_filter: str) -> None:
@@ -459,7 +679,7 @@ def capture_packets(interface: str | None, bpf_filter: str) -> None:
         sniff(
             iface=interface,
             filter=bpf_filter,
-            prn=lambda pkt: process_scapy_packet(pkt),
+            prn=process_scapy_packet,
             store=False,
             stop_filter=lambda _: CAPTURE_STOP.is_set(),
         )
@@ -474,7 +694,7 @@ def capture_packets(interface: str | None, bpf_filter: str) -> None:
                 "result": {
                     "status": "UNKNOWN",
                     "severity": "low",
-                    "reason": "Live capture could not start.",
+                    "reason": "Live capture could not start (need root / valid interface).",
                     "threat_score": 0,
                     "barriers": {},
                 },
@@ -516,6 +736,7 @@ def process_scapy_packet(pkt) -> None:
             "protocol": protocol_name(pkt[IP].proto),
             "src_port": packet["tcp.srcport"] or packet["udp.srcport"],
             "dst_port": packet["tcp.dstport"] or packet["udp.dstport"],
+            "interface": CAPTURE_INFO.get("interface"),
         }
         process_packet(packet, metadata=metadata, source="capture")
     except Exception as exc:
@@ -525,34 +746,48 @@ def process_scapy_packet(pkt) -> None:
 def protocol_name(value: Any) -> str:
     try:
         proto = int(float(value))
-    except Exception:
+    except (TypeError, ValueError):
         return "ip"
     return {1: "ICMP", 6: "TCP", 17: "UDP"}.get(proto, str(proto))
 
 
+# --------------------------------------------------------------------------- #
+# Status helpers
+# --------------------------------------------------------------------------- #
 def replay_status() -> dict[str, Any]:
     return {
-        "running": bool(REPLAY_THREAD and REPLAY_THREAD.is_alive() and not REPLAY_STOP.is_set()),
+        "running": bool(
+            REPLAY_THREAD and REPLAY_THREAD.is_alive() and not REPLAY_STOP.is_set()
+        ),
         "stop_requested": REPLAY_STOP.is_set(),
     }
 
 
 def capture_status() -> dict[str, Any]:
     return {
-        "running": bool(CAPTURE_THREAD and CAPTURE_THREAD.is_alive() and not CAPTURE_STOP.is_set()),
+        "running": bool(
+            CAPTURE_THREAD and CAPTURE_THREAD.is_alive() and not CAPTURE_STOP.is_set()
+        ),
         "stop_requested": CAPTURE_STOP.is_set(),
+        "interface": CAPTURE_INFO.get("interface"),
+        "filter": CAPTURE_INFO.get("filter"),
     }
 
 
 def prevention_status() -> dict[str, Any]:
+    policy = settings.policy
     return {
-        "auto_block": CONFIG["auto_block"],
-        "dry_run": CONFIG["dry_run"],
-        "block_threshold": CONFIG["block_threshold"],
-        "block_duration_seconds": CONFIG["block_duration_seconds"],
+        "auto_block": policy["auto_block"],
+        "dry_run": policy["dry_run"],
+        "block_threshold": policy["block_threshold"],
+        "block_duration_seconds": policy["block_duration_seconds"],
         "blocked_count": len(BLOCKED),
     }
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("IDPS_PORT", "5000")), threaded=True)
+    app.run(
+        host=os.getenv("IDPS_HOST", "0.0.0.0"),
+        port=int(os.getenv("IDPS_PORT", "5000")),
+        threaded=True,
+    )

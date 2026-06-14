@@ -1,0 +1,15 @@
+# --- Runtime (dashboard + engine) ---
+# These alone are enough to run the full live dashboard in surrogate mode.
+flask>=3.0
+numpy>=1.26
+pandas>=2.0
+scikit-learn>=1.3
+joblib>=1.3
+scapy>=2.5            # live packet capture from this machine's interfaces
+
+# --- Optional: real trained neural / boosted models ---
+# Install these and restart (or hit "Reload Models") to switch the barriers
+# from the dependency-free surrogates to the actual trained models.
+# See TODOS.md for details.
+xgboost>=2.0          # Barrier 1 - routine classifier
+tensorflow-cpu>=2.15  # Barriers 2 & 3 - transformer + autoencoder (.h5)

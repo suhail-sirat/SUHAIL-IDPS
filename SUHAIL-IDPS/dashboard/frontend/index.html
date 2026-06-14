@@ -1,805 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SUHAIL IDPS Live Dashboard</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #101316;
-      --panel: #181d22;
-      --panel-2: #20262d;
-      --line: #313942;
-      --text: #eef3f6;
-      --muted: #9eabb5;
-      --good: #4fc37b;
-      --warn: #f0b44c;
-      --bad: #ef6666;
-      --info: #67b7dc;
-      --ink: #0b0d10;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-    }
-
-    button, input, select {
-      font: inherit;
-    }
-
-    button {
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--text);
-      min-height: 36px;
-      padding: 0 12px;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    button.primary { background: var(--info); border-color: var(--info); color: var(--ink); font-weight: 700; }
-    button.danger { background: #3a2022; border-color: #7d353a; color: #ffd9dc; }
-    button:hover { filter: brightness(1.08); }
-
-    input, select {
-      min-height: 36px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #0f1215;
-      color: var(--text);
-      padding: 0 10px;
-      width: 100%;
-    }
-
-    .app {
-      display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
-      min-height: 100vh;
-    }
-
-    aside {
-      border-right: 1px solid var(--line);
-      background: #13171b;
-      padding: 18px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-    }
-
-    main {
-      min-width: 0;
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 800;
-      font-size: 18px;
-    }
-
-    .mark {
-      width: 34px;
-      height: 34px;
-      border: 2px solid var(--info);
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      color: var(--info);
-      font-weight: 900;
-    }
-
-    .nav-block, .panel {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-    }
-
-    .nav-block { padding: 12px; }
-    .nav-title, .section-title {
-      color: var(--muted);
-      text-transform: uppercase;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: .08em;
-      margin-bottom: 10px;
-    }
-
-    .control-grid {
-      display: grid;
-      gap: 10px;
-    }
-
-    .toggle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      min-height: 36px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .toggle input { width: auto; accent-color: var(--info); }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.15;
-    }
-
-    .subtitle {
-      margin-top: 5px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 7px 12px;
-      color: var(--muted);
-      background: var(--panel);
-      white-space: nowrap;
-    }
-
-    .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: var(--warn);
-    }
-
-    .dot.live { background: var(--good); box-shadow: 0 0 0 4px rgba(79, 195, 123, .12); }
-    .dot.down { background: var(--bad); }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(120px, 1fr));
-      gap: 12px;
-    }
-
-    .metric {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      padding: 14px;
-      min-height: 94px;
-    }
-
-    .metric label {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 10px;
-    }
-
-    .metric strong {
-      display: block;
-      font-size: 30px;
-      line-height: 1;
-      overflow-wrap: anywhere;
-    }
-
-    .metric span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: 9px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.3fr) minmax(340px, .7fr);
-      gap: 16px;
-      align-items: start;
-    }
-
-    .panel {
-      min-width: 0;
-      overflow: hidden;
-    }
-
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 14px 0;
-    }
-
-    .panel-header h2 {
-      margin: 0;
-      font-size: 16px;
-    }
-
-    .panel-body { padding: 14px; }
-
-    .barriers {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .barrier {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-2);
-      padding: 12px;
-      min-height: 150px;
-    }
-
-    .barrier h3 {
-      margin: 0 0 8px;
-      font-size: 14px;
-    }
-
-    .barrier .score {
-      font-size: 27px;
-      font-weight: 800;
-      margin-bottom: 8px;
-    }
-
-    .meter {
-      height: 8px;
-      background: #0c0f12;
-      border-radius: 999px;
-      overflow: hidden;
-      border: 1px solid #283039;
-    }
-
-    .meter div {
-      height: 100%;
-      width: 0%;
-      background: var(--info);
-      transition: width .2s ease;
-    }
-
-    .barrier.alert .meter div { background: var(--bad); }
-    .barrier.pass .meter div { background: var(--good); }
-    .barrier.waiting .meter div { background: var(--warn); }
-
-    .meta-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: 8px;
-    }
-
-    .timeline {
-      width: 100%;
-      height: 210px;
-      display: block;
-      background: #0f1215;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 10px 8px;
-      text-align: left;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-    }
-
-    th {
-      color: var(--muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      background: #151a1f;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-
-    tbody tr:hover { background: #1e242a; }
-
-    .table-wrap {
-      max-height: 430px;
-      overflow: auto;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      border-radius: 999px;
-      padding: 0 9px;
-      font-size: 12px;
-      font-weight: 800;
-      background: #26313a;
-      color: var(--text);
-    }
-
-    .badge.normal { background: rgba(79, 195, 123, .16); color: #a8efc2; }
-    .badge.suspicious { background: rgba(240, 180, 76, .16); color: #ffd58a; }
-    .badge.attack { background: rgba(239, 102, 102, .17); color: #ffc2c2; }
-    .badge.unknown { background: #323940; color: #d4dde3; }
-
-    .side-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .list-item {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-2);
-      padding: 10px;
-    }
-
-    .list-item strong {
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    .list-item span, .empty {
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .threshold-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .field label {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 5px;
-    }
-
-    .wide { grid-column: 1 / -1; }
-
-    @media (max-width: 1100px) {
-      .app { grid-template-columns: 1fr; }
-      aside { border-right: 0; border-bottom: 1px solid var(--line); }
-      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .grid, .barriers { grid-template-columns: 1fr; }
-    }
-
-    @media (max-width: 620px) {
-      main, aside { padding: 12px; }
-      .topbar { align-items: flex-start; flex-direction: column; }
-      .metrics { grid-template-columns: 1fr; }
-      .threshold-grid { grid-template-columns: 1fr; }
-      h1 { font-size: 23px; }
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SUHAIL IDPS &middot; Live Console</title>
+  <link rel="stylesheet" href="app.css" />
 </head>
 <body>
   <div class="app">
+    <!-- ============================ SIDEBAR ============================ -->
     <aside>
       <div class="brand">
         <div class="mark">ID</div>
-        <div>SUHAIL IDPS</div>
+        <div>SUHAIL IDPS<small>Three-barrier AI defence</small></div>
       </div>
 
-      <div class="nav-block">
-        <div class="nav-title">Traffic Source</div>
-        <div class="control-grid">
-          <select id="profile">
-            <option value="mixed">Mixed replay</option>
-            <option value="attack">Attack replay</option>
-            <option value="normal">Normal replay</option>
-          </select>
-          <input id="speed" type="number" min="1" max="200" value="25" aria-label="Replay speed">
-          <button class="primary" id="startReplay">Start Replay</button>
-          <button id="stopReplay">Stop Replay</button>
-          <button id="startCapture">Start Capture</button>
-          <button id="stopCapture">Stop Capture</button>
-        </div>
+      <nav class="nav">
+        <a href="#overview" class="active"><span class="ic">▦</span> Overview</a>
+        <a href="#live"><span class="ic">≋</span> Live Traffic</a>
+        <a href="#alerts"><span class="ic">⚠</span> Alerts <span class="pip">0</span></a>
+        <a href="#sources"><span class="ic">⌖</span> Sources &amp; Blocking <span class="pip">0</span></a>
+        <a href="#models"><span class="ic">◈</span> Models</a>
+        <a href="#settings"><span class="ic">⚙</span> Settings</a>
+      </nav>
+
+      <div class="status-pill" style="justify-content:center">
+        <span class="dot live-dot">●</span><span class="live-text">Connecting</span>
       </div>
 
-      <div class="nav-block">
-        <div class="nav-title">Response</div>
-        <label class="toggle">Auto block <input type="checkbox" id="autoBlock"></label>
-        <label class="toggle">Dry run <input type="checkbox" id="dryRun" checked></label>
-        <div class="field">
-          <label for="blockThreshold">Block threshold</label>
-          <input id="blockThreshold" type="number" min="1" value="5">
-        </div>
-        <button id="saveConfig">Save Policy</button>
-      </div>
-
-      <div class="nav-block">
-        <div class="nav-title">Thresholds</div>
-        <div class="threshold-grid">
-          <div class="field">
-            <label for="xgbSuspicious">XGB warn</label>
-            <input id="xgbSuspicious" type="number" min="0" max="1" step="0.01">
-          </div>
-          <div class="field">
-            <label for="xgbAttack">XGB attack</label>
-            <input id="xgbAttack" type="number" min="0" max="1" step="0.01">
-          </div>
-          <div class="field">
-            <label for="transformer">Transformer</label>
-            <input id="transformer" type="number" min="0" max="1" step="0.01">
-          </div>
-          <div class="field">
-            <label for="autoencoder">Autoencoder</label>
-            <input id="autoencoder" type="number" min="0" step="0.001">
-          </div>
-        </div>
+      <div class="side-foot">
+        <div>Routine &middot; Context &middot; Zero-day</div>
+        <div>XGBoost / Transformer / Autoencoder</div>
+        <div style="margin-top:8px" id="captureInfo">Capture idle</div>
       </div>
     </aside>
 
+    <!-- ============================ MAIN ============================ -->
     <main>
-      <section class="topbar">
-        <div>
-          <h1>Live Intrusion Detection and Prevention</h1>
-          <div class="subtitle">Routine classifier, session transformer, and anomaly detector in one live decision stream.</div>
-        </div>
-        <div class="status-pill"><span class="dot" id="liveDot"></span><span id="liveText">Connecting</span></div>
-      </section>
-
-      <section class="metrics">
-        <div class="metric"><label>Total packets</label><strong id="total">0</strong><span id="ppm">0 per minute</span></div>
-        <div class="metric"><label>Normal</label><strong id="normal">0</strong><span>Allowed traffic</span></div>
-        <div class="metric"><label>Suspicious</label><strong id="suspicious">0</strong><span>Under review</span></div>
-        <div class="metric"><label>Attacks</label><strong id="attacks">0</strong><span id="attackRate">0%</span></div>
-        <div class="metric"><label>Blocked</label><strong id="blockedCount">0</strong><span>Active entries</span></div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Three-Barrier AI Decision</h2>
-          <span class="status-pill" id="lastDecision">No packets yet</span>
-        </div>
-        <div class="panel-body">
-          <div class="barriers">
-            <div class="barrier waiting" id="routineCard">
-              <h3>Routine XGBoost</h3>
-              <div class="score" id="routineScore">--</div>
-              <div class="meter"><div id="routineMeter"></div></div>
-              <div class="meta-row"><span id="routineState">Waiting</span><span id="routineLatency">0 ms</span></div>
-            </div>
-            <div class="barrier waiting" id="contextCard">
-              <h3>Context Transformer</h3>
-              <div class="score" id="contextScore">--</div>
-              <div class="meter"><div id="contextMeter"></div></div>
-              <div class="meta-row"><span id="contextState">Waiting</span><span id="contextLatency">0 ms</span></div>
-            </div>
-            <div class="barrier waiting" id="zeroCard">
-              <h3>Zero-Day Autoencoder</h3>
-              <div class="score" id="zeroScore">--</div>
-              <div class="meter"><div id="zeroMeter"></div></div>
-              <div class="meta-row"><span id="zeroState">Waiting</span><span id="zeroLatency">0 ms</span></div>
-            </div>
+      <!-- ---------------------- OVERVIEW ---------------------- -->
+      <section class="page active" id="page-overview">
+        <div class="topbar">
+          <div>
+            <h1>Live Intrusion Detection &amp; Prevention</h1>
+            <div class="subtitle">Routine classifier, session transformer and anomaly detector in one live decision stream.</div>
           </div>
+          <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text">Connecting</span></div>
         </div>
-      </section>
 
-      <section class="grid">
-        <div class="panel">
+        <div class="metrics">
+          <div class="metric"><label>Total packets</label><strong id="ovTotal">0</strong><span id="ovPpm">0 pkt/min</span></div>
+          <div class="metric good"><label>Normal</label><strong id="ovNormal">0</strong><span id="ovUptime">0m uptime</span></div>
+          <div class="metric warn"><label>Suspicious</label><strong id="ovSuspicious">0</strong><span>Under review</span></div>
+          <div class="metric bad"><label>Attacks</label><strong id="ovAttacks">0</strong><span id="ovAttackRate">0% attack rate</span></div>
+          <div class="metric"><label>Blocked</label><strong id="ovBlocked">0</strong><span>Active entries</span></div>
+        </div>
+
+        <section class="panel">
           <div class="panel-header">
-            <h2>Threat Timeline</h2>
-            <span class="status-pill" id="sequenceState">Sequence 0/50</span>
+            <h2>Three-Barrier AI Decision</h2>
+            <span class="status-pill" id="ovLastDecision">No packets yet</span>
           </div>
           <div class="panel-body">
-            <canvas class="timeline" id="timeline" width="900" height="240"></canvas>
+            <div class="barriers">
+              <div class="barrier waiting" id="ovRoutineCard">
+                <span class="mode-tag model" id="ovRoutineMode">model</span>
+                <h3>Routine</h3><div class="role">XGBoost &middot; per-packet</div>
+                <div class="score" id="ovRoutineScore">--</div>
+                <div class="meter"><div id="ovRoutineMeter"></div></div>
+                <div class="meta-row"><span id="ovRoutineState">Waiting</span><span id="ovRoutineLatency">0 ms</span></div>
+              </div>
+              <div class="barrier waiting" id="ovContextCard">
+                <span class="mode-tag model" id="ovContextMode">model</span>
+                <h3>Context</h3><div class="role">Transformer &middot; broader view</div>
+                <div class="score" id="ovContextScore">--</div>
+                <div class="meter"><div id="ovContextMeter"></div></div>
+                <div class="meta-row"><span id="ovContextState">Waiting</span><span id="ovContextLatency">0 ms</span></div>
+              </div>
+              <div class="barrier waiting" id="ovZeroCard">
+                <span class="mode-tag model" id="ovZeroMode">model</span>
+                <h3>Zero-day</h3><div class="role">Autoencoder &middot; anomaly</div>
+                <div class="score" id="ovZeroScore">--</div>
+                <div class="meter"><div id="ovZeroMeter"></div></div>
+                <div class="meta-row"><span id="ovZeroState">Waiting</span><span id="ovZeroLatency">0 ms</span></div>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div class="panel">
-          <div class="panel-header"><h2>Model Health</h2></div>
-          <div class="panel-body">
-            <div class="side-list" id="modelHealth"></div>
+        <section class="grid two">
+          <div class="panel">
+            <div class="panel-header"><h2>Threat Timeline</h2><span class="status-pill" id="ovSequenceState">Flow ctx 0/50</span></div>
+            <div class="panel-body"><canvas class="chart" id="ovTimeline"></canvas></div>
           </div>
-        </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Protocol Mix</h2></div>
+            <div class="panel-body"><canvas class="chart" id="ovProtoChart"></canvas></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><h2>Model Health</h2><span class="hint">Live engine status</span></div>
+          <div class="panel-body"><div class="grid three" id="ovModelHealth"></div></div>
+        </section>
       </section>
 
-      <section class="grid">
-        <div class="panel">
+      <!-- ---------------------- LIVE TRAFFIC ---------------------- -->
+      <section class="page" id="page-live">
+        <div class="topbar">
+          <div><h1>Live Traffic</h1><div class="subtitle">Capture from any interface, replay datasets, and inspect every scored packet.</div></div>
+          <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text">Connecting</span></div>
+        </div>
+
+        <section class="grid even">
+          <div class="panel">
+            <div class="panel-header"><h2>Live Capture (this machine)</h2><span class="hint">root required</span></div>
+            <div class="panel-body">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="ifaceSelect">Interface</label>
+                  <select id="ifaceSelect"><option value="">All interfaces</option></select>
+                  <div class="help">Source of packets to be live-checked</div>
+                </div>
+                <div class="field">
+                  <label for="protoFilterSelect">Protocol filter</label>
+                  <select id="protoFilterSelect"><option value="">Any</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
+                </div>
+                <div class="field">
+                  <label for="srcFilterInput">Source IP filter</label>
+                  <input id="srcFilterInput" placeholder="e.g. 10.0.0.5" />
+                  <div class="help">Only capture packets from this source</div>
+                </div>
+              </div>
+              <div class="toolbar" style="margin-top:14px">
+                <button class="primary" id="startCapture">Start Capture</button>
+                <button id="stopCapture">Stop Capture</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h2>Dataset Replay</h2><span class="hint">demo / test traffic</span></div>
+            <div class="panel-body">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="profileSelect">Profile</label>
+                  <select id="profileSelect"><option value="mixed">Mixed</option><option value="attack">Attack only</option><option value="normal">Normal only</option></select>
+                </div>
+                <div class="field">
+                  <label for="speedInput">Speed (pkt/s)</label>
+                  <input id="speedInput" type="number" min="1" max="500" value="25" />
+                </div>
+              </div>
+              <div class="toolbar" style="margin-top:14px">
+                <button class="accent" id="startReplay">Start Replay</button>
+                <button id="stopReplay">Stop Replay</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
           <div class="panel-header">
             <h2>Live Packet Events</h2>
-            <select id="eventFilter" style="max-width: 180px;">
-              <option value="all">All statuses</option>
-              <option value="ATTACK">Attacks</option>
-              <option value="SUSPICIOUS">Suspicious</option>
-              <option value="NORMAL">Normal</option>
-              <option value="UNKNOWN">Unknown</option>
-            </select>
+            <div class="toolbar">
+              <input id="eventSourceFilter" placeholder="Filter source IP" style="max-width:170px" />
+              <select id="eventFilterSelect" style="max-width:160px">
+                <option value="all">All statuses</option>
+                <option value="ATTACK">Attacks</option>
+                <option value="SUSPICIOUS">Suspicious</option>
+                <option value="NORMAL">Normal</option>
+                <option value="UNKNOWN">Unknown</option>
+              </select>
+              <button id="pauseToggle" class="ghost">Pause</button>
+              <button id="exportEvents" class="ghost">Export</button>
+            </div>
           </div>
           <div class="panel-body">
             <div class="table-wrap">
               <table>
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Status</th>
-                    <th>Source</th>
-                    <th>Destination</th>
-                    <th>Threat</th>
-                    <th>Reason</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody id="eventsBody"></tbody>
+                <thead><tr><th>Time</th><th>Status</th><th>Source</th><th>Destination</th><th>Proto</th><th>Threat</th><th>Reason</th><th>Action</th></tr></thead>
+                <tbody id="liveEventsBody"></tbody>
+              </table>
+            </div>
+            <div class="help" style="margin-top:8px">Tip: click a row to drill into that flow's barrier-by-barrier history.</div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ---------------------- ALERTS ---------------------- -->
+      <section class="page" id="page-alerts">
+        <div class="topbar">
+          <div><h1>Alerts</h1><div class="subtitle">Every suspicious and hostile decision the barriers raised.</div></div>
+          <span class="status-pill">Total alerts: <b id="alertsCount" style="color:var(--text);margin-left:6px">0</b></span>
+        </div>
+        <section class="panel">
+          <div class="panel-header"><h2>Alert Feed</h2><span class="hint">click a row for flow detail</span></div>
+          <div class="panel-body">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Time</th><th>Status</th><th>Severity</th><th>Source</th><th>Destination</th><th>Proto</th><th>Threat</th><th>Reason</th></tr></thead>
+                <tbody id="alertsBody"></tbody>
               </table>
             </div>
           </div>
+        </section>
+      </section>
+
+      <!-- ---------------------- SOURCES ---------------------- -->
+      <section class="page" id="page-sources">
+        <div class="topbar">
+          <div><h1>Sources &amp; Blocking</h1><div class="subtitle">Per-source intelligence and the active prevention list.</div></div>
+        </div>
+        <section class="grid even">
+          <div class="panel">
+            <div class="panel-header"><h2>Hot Sources</h2><span class="hint">ranked by attacks</span></div>
+            <div class="panel-body"><div class="side-list" id="sourcesList"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Blocked IPs</h2><span class="hint">auto + manual</span></div>
+            <div class="panel-body"><div class="side-list" id="blockedList"></div></div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ---------------------- MODELS ---------------------- -->
+      <section class="page" id="page-models">
+        <div class="topbar">
+          <div><h1>Models</h1><div class="subtitle">The three barriers, how they're running, and the active thresholds.</div></div>
+          <button id="reloadModels" class="ghost">Reload Models</button>
+        </div>
+        <div class="panel" id="modelsBanner" style="display:none;border-color:#5b4a8f">
+          <div class="panel-body" style="display:flex;gap:12px;align-items:center">
+            <span class="mode-tag surrogate">surrogate</span>
+            <span>One or more barriers are running in <b>surrogate</b> mode (dependency-free approximation). Install TensorFlow + XGBoost and hit <b>Reload Models</b> to switch to the trained neural models. See <span class="mono">TODOS.md</span>.</span>
+          </div>
+        </div>
+        <section class="grid three" id="modelsHealth"></section>
+        <section class="grid even">
+          <div class="panel">
+            <div class="panel-header"><h2>Engine Configuration</h2></div>
+            <div class="panel-body">
+              <div class="kpi-inline" style="flex-direction:column;gap:12px">
+                <div>Sequence length: <b id="modelSeqLen">--</b></div>
+                <div>Transformer context: <b id="modelPadEarly">--</b></div>
+                <div>Feature order:<br><span class="mono" id="modelFeatures" style="color:var(--muted)"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Active Thresholds</h2></div>
+            <div class="panel-body"><div class="side-list" id="modelThresholds"></div></div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ---------------------- SETTINGS ---------------------- -->
+      <section class="page" id="page-settings">
+        <div class="topbar">
+          <div><h1>Settings</h1><div class="subtitle">Tune the decision thresholds and the prevention policy. Changes persist across restarts.</div></div>
+          <button class="primary" id="saveSettings">Save &amp; Persist</button>
         </div>
 
-        <div class="panel">
-          <div class="panel-header"><h2>Hot Sources</h2></div>
+        <section class="panel">
+          <div class="panel-header"><h2>Decision Thresholds</h2><span class="hint">per barrier</span></div>
           <div class="panel-body">
-            <div class="side-list" id="sourcesList"></div>
+            <div class="form-grid">
+              <div class="field"><label for="setXgbSuspicious">XGB suspicious</label><input id="setXgbSuspicious" type="number" min="0" max="1" step="0.01" /><div class="help">Routine warn level</div></div>
+              <div class="field"><label for="setXgbAttack">XGB attack</label><input id="setXgbAttack" type="number" min="0" max="1" step="0.01" /><div class="help">Routine hard-block level</div></div>
+              <div class="field"><label for="setTransformer">Transformer</label><input id="setTransformer" type="number" min="0" max="1" step="0.01" /><div class="help">Session attack level</div></div>
+              <div class="field"><label for="setAutoencoder">Autoencoder</label><input id="setAutoencoder" type="number" min="0" step="0.001" /><div class="help">Reconstruction-error cutoff</div></div>
+            </div>
           </div>
-          <div class="panel-header"><h2>Blocked IPs</h2></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><h2>Prevention Policy</h2><span class="hint">response &amp; blocking</span></div>
           <div class="panel-body">
-            <div class="side-list" id="blockedList"></div>
+            <div class="form-grid">
+              <label class="toggle">Auto-block offenders <input type="checkbox" id="setAutoBlock" /></label>
+              <label class="toggle">Dry-run (simulate, no iptables) <input type="checkbox" id="setDryRun" /></label>
+              <div class="field"><label for="setBlockThreshold">Block after N alerts</label><input id="setBlockThreshold" type="number" min="1" /></div>
+              <div class="field"><label for="setBlockDuration">Block duration (sec)</label><input id="setBlockDuration" type="number" min="10" /></div>
+            </div>
+            <div class="help" style="margin-top:12px">When dry-run is off, blocks run real <span class="mono">iptables -A INPUT -s &lt;ip&gt; -j DROP</span> rules and the backend must run as root.</div>
           </div>
-        </div>
+        </section>
       </section>
     </main>
   </div>
 
-  <script>
-    const API = location.protocol.startsWith("http") ? location.origin : "http://localhost:5000";
-    const events = [];
-    const timeline = [];
-    const maxEvents = 120;
-    const maxTimeline = 80;
+  <!-- flow drill-down modal -->
+  <div class="modal-backdrop" id="flowModal">
+    <div class="modal">
+      <div class="panel-header"><h2 class="mono" id="flowTitle" style="font-size:13px"></h2><button class="ghost" id="flowClose">Close</button></div>
+      <div class="panel-body" id="flowBody"></div>
+    </div>
+  </div>
 
-    const $ = (id) => document.getElementById(id);
+  <div class="toasts" id="toasts"></div>
 
-    function fmt(value, digits = 3) {
-      if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
-      return Number(value).toFixed(digits);
-    }
-
-    function setLive(state, text) {
-      $("liveDot").className = `dot ${state}`;
-      $("liveText").textContent = text;
-    }
-
-    async function api(path, options = {}) {
-      const response = await fetch(`${API}${path}`, {
-        headers: { "Content-Type": "application/json" },
-        ...options
-      });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      return response.json();
-    }
-
-    async function loadHealth() {
-      const health = await api("/api/health");
-      const models = health.engine.models;
-      $("modelHealth").innerHTML = Object.values(models).map(model => `
-        <div class="list-item">
-          <strong>${model.name}</strong>
-          <span>${model.available ? "Available" : "Unavailable"}${model.error ? `: ${model.error}` : ""}</span>
-        </div>
-      `).join("");
-
-      const thresholds = health.engine.thresholds;
-      $("xgbSuspicious").value = thresholds.xgb_suspicious;
-      $("xgbAttack").value = thresholds.xgb_attack;
-      $("transformer").value = thresholds.transformer;
-      $("autoencoder").value = thresholds.autoencoder;
-      $("autoBlock").checked = health.prevention.auto_block;
-      $("dryRun").checked = health.prevention.dry_run;
-      $("blockThreshold").value = health.prevention.block_threshold;
-    }
-
-    async function loadStats() {
-      const stats = await api("/api/stats");
-      $("total").textContent = stats.total;
-      $("normal").textContent = stats.normal;
-      $("suspicious").textContent = stats.suspicious;
-      $("attacks").textContent = stats.attacks;
-      $("blockedCount").textContent = stats.blocked_count;
-      $("ppm").textContent = `${stats.packets_per_minute} per minute`;
-      $("attackRate").textContent = `${Math.round(stats.attack_rate * 100)}% attack rate`;
-      $("sourcesList").innerHTML = stats.top_sources.length ? stats.top_sources.map(source => `
-        <div class="list-item">
-          <strong>${source.ip}</strong>
-          <span>${source.total} packets, ${source.attacks} attacks, ${source.suspicious} suspicious</span>
-        </div>
-      `).join("") : `<div class="empty">No sources observed.</div>`;
-    }
-
-    async function loadBlocked() {
-      const blocked = await api("/api/blocked");
-      $("blockedList").innerHTML = blocked.length ? blocked.map(entry => `
-        <div class="list-item">
-          <strong>${entry.ip}</strong>
-          <span>${entry.dry_run ? "Dry-run" : "Enforced"} until ${new Date(entry.expires_at).toLocaleTimeString()}</span>
-        </div>
-      `).join("") : `<div class="empty">No active blocks.</div>`;
-    }
-
-    function addEvent(event) {
-      events.unshift(event);
-      if (events.length > maxEvents) events.pop();
-      timeline.push(event.result.threat_score || 0);
-      if (timeline.length > maxTimeline) timeline.shift();
-      updateDecision(event);
-      renderEvents();
-      drawTimeline();
-    }
-
-    function updateDecision(event) {
-      const result = event.result;
-      $("lastDecision").innerHTML = `<span class="badge ${result.status.toLowerCase()}">${result.status}</span> ${Math.round((result.threat_score || 0) * 100)}%`;
-      $("sequenceState").textContent = `Sequence ${result.sequence.length}/${result.sequence.target_length}`;
-
-      updateBarrier("routine", result.barriers.routine_xgboost);
-      updateBarrier("context", result.barriers.context_transformer);
-      updateBarrier("zero", result.barriers.zero_day_autoencoder);
-    }
-
-    function updateBarrier(prefix, barrier) {
-      const score = barrier.score;
-      const threshold = Number(barrier.threshold || 1);
-      const pct = score === null || score === undefined ? 0 : Math.min(100, Math.max(0, (Number(score) / Math.max(threshold, 0.000001)) * 70));
-      const state = (barrier.state || "WAITING").toLowerCase();
-      $(`${prefix}Card`).className = `barrier ${state === "alert" ? "alert" : state === "pass" ? "pass" : "waiting"}`;
-      $(`${prefix}Score`).textContent = fmt(score, prefix === "zero" ? 5 : 3);
-      $(`${prefix}Meter`).style.width = `${pct}%`;
-      $(`${prefix}State`).textContent = barrier.state || "WAITING";
-      $(`${prefix}Latency`).textContent = `${fmt(barrier.latency_ms, 1)} ms`;
-    }
-
-    function renderEvents() {
-      const filter = $("eventFilter").value;
-      const rows = events
-        .filter(event => filter === "all" || event.result.status === filter)
-        .slice(0, 80)
-        .map(event => {
-          const status = event.result.status;
-          const badgeClass = status.toLowerCase();
-          const metadata = event.metadata || {};
-          const action = event.action || {};
-          return `
-            <tr>
-              <td>${new Date(event.timestamp).toLocaleTimeString()}</td>
-              <td><span class="badge ${badgeClass}">${status}</span></td>
-              <td>${metadata.src_ip || metadata.source || "unknown"}</td>
-              <td>${metadata.dst_ip || metadata.destination || "unknown"}</td>
-              <td>${Math.round((event.result.threat_score || 0) * 100)}%</td>
-              <td>${event.result.reason}</td>
-              <td>${action.type || "observe"}</td>
-            </tr>
-          `;
-        }).join("");
-      $("eventsBody").innerHTML = rows || `<tr><td colspan="7" class="empty">No events yet.</td></tr>`;
-    }
-
-    function drawTimeline() {
-      const canvas = $("timeline");
-      const ctx = canvas.getContext("2d");
-      const width = canvas.width;
-      const height = canvas.height;
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = "#0f1215";
-      ctx.fillRect(0, 0, width, height);
-      ctx.strokeStyle = "#2f3740";
-      ctx.lineWidth = 1;
-      for (let i = 1; i < 4; i++) {
-        const y = (height / 4) * i;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-      if (!timeline.length) return;
-      const step = width / Math.max(maxTimeline - 1, 1);
-      ctx.beginPath();
-      timeline.forEach((value, index) => {
-        const x = index * step;
-        const y = height - (value * (height - 18)) - 9;
-        if (index === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.strokeStyle = "#67b7dc";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      timeline.forEach((value, index) => {
-        const x = index * step;
-        const y = height - (value * (height - 18)) - 9;
-        ctx.fillStyle = value > .75 ? "#ef6666" : value > .45 ? "#f0b44c" : "#4fc37b";
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-
-    async function loadRecentEvents() {
-      const recent = await api("/api/events?limit=80");
-      recent.reverse().forEach(addEvent);
-    }
-
-    function connectStream() {
-      if (!window.EventSource) {
-        setLive("down", "Polling");
-        setInterval(loadRecentEvents, 3000);
-        return;
-      }
-      const stream = new EventSource(`${API}/api/stream`);
-      stream.addEventListener("open", () => setLive("live", "Live"));
-      stream.addEventListener("packet", (message) => addEvent(JSON.parse(message.data)));
-      stream.addEventListener("error", () => setLive("down", "Reconnecting"));
-    }
-
-    async function saveConfig() {
-      await api("/api/config", {
-        method: "POST",
-        body: JSON.stringify({
-          auto_block: $("autoBlock").checked,
-          dry_run: $("dryRun").checked,
-          block_threshold: Number($("blockThreshold").value || 5),
-          thresholds: {
-            xgb_suspicious: Number($("xgbSuspicious").value),
-            xgb_attack: Number($("xgbAttack").value),
-            transformer: Number($("transformer").value),
-            autoencoder: Number($("autoencoder").value)
-          }
-        })
-      });
-      await loadHealth();
-    }
-
-    $("startReplay").addEventListener("click", () => api("/api/replay/start", {
-      method: "POST",
-      body: JSON.stringify({ profile: $("profile").value, speed: Number($("speed").value || 25) })
-    }));
-    $("stopReplay").addEventListener("click", () => api("/api/replay/stop", { method: "POST" }));
-    $("startCapture").addEventListener("click", () => api("/api/capture/start", { method: "POST", body: JSON.stringify({ filter: "ip" }) }));
-    $("stopCapture").addEventListener("click", () => api("/api/capture/stop", { method: "POST" }));
-    $("saveConfig").addEventListener("click", saveConfig);
-    $("eventFilter").addEventListener("change", renderEvents);
-
-    Promise.all([loadHealth(), loadStats(), loadBlocked(), loadRecentEvents()])
-      .then(connectStream)
-      .catch(error => {
-        setLive("down", "Backend offline");
-        console.error(error);
-      });
-
-    setInterval(loadStats, 2000);
-    setInterval(loadBlocked, 4000);
-    setInterval(loadHealth, 15000);
-    drawTimeline();
-    renderEvents();
-  </script>
+  <script src="app.js"></script>
 </body>
 </html>

@@ -1,135 +1,105 @@
+"""Serving-time three-barrier IDPS decision engine.
+
+The engine fuses three independently trained models into a layered defence:
+
+* **Barrier 1 - Routine (XGBoost):** fast per-packet classifier that scores
+  every packet. This is the always-on first line.
+* **Barrier 2 - Context (Transformer):** session/window classifier with a
+  "broader point of view". It looks at the recent sequence of a flow so it can
+  catch slow, multi-packet attacks the per-packet view misses. It engages when
+  a packet is suspicious or anomalous (or always, if configured), padding short
+  flows so it can give an early read instead of staying silent on live traffic.
+* **Barrier 3 - Zero-day (Autoencoder):** reconstruction-error anomaly detector
+  trained on normal traffic only. High error == "out of the ordinary" == a
+  candidate novel/zero-day event.
+
+Each barrier is backed by a *pluggable scorer* (see ``src.core.scorers``) that
+uses the real trained model when TensorFlow / XGBoost are installed and a
+lightweight, dependency-free surrogate otherwise - so the full pipeline runs
+either way and upgrades automatically when the heavy stack appears.
+
+The fused verdict (NORMAL / SUSPICIOUS / ATTACK / UNKNOWN) plus a normalised
+threat score is what the dashboard renders live.
+"""
+
 from __future__ import annotations
 
-import os
 import time
 from collections import defaultdict, deque
-from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 
 import joblib
 import numpy as np
 
+from src.core import config
+from src.core.config import settings
 from src.core.features import DEFAULT_FEATURES, frame_to_sequence_row, packets_to_frame
-
-
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-
-XGB_MODEL_PATH = os.path.join(BASE_DIR, "models", "xgboost", "xgb_model.pkl")
-XGB_SCALER_PATH = os.path.join(BASE_DIR, "models", "xgboost", "xgb_scaler.pkl")
-XGB_FEATURES_PATH = os.path.join(BASE_DIR, "models", "xgboost", "xgb_features.pkl")
-
-AE_MODEL_PATH = os.path.join(BASE_DIR, "models", "autoencoder", "autoencoder.h5")
-AE_SCALER_PATH = os.path.join(BASE_DIR, "models", "autoencoder", "ae_scaler.pkl")
-
-TRANSFORMER_MODEL_PATH = os.path.join(BASE_DIR, "models", "transformer", "transformer_model.h5")
-
-
-@dataclass
-class ModelSlot:
-    name: str
-    available: bool = False
-    model: Any = None
-    scaler: Any = None
-    error: str | None = None
-
-    def health(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "available": self.available,
-            "error": self.error,
-        }
+from src.core.scorers import AnomalyScorer, ContextScorer, RoutineScorer, health_of
 
 
 class DecisionEngine:
-    """Serving-time three-barrier IDPS engine.
+    """Serving-time three-barrier IDPS engine."""
 
-    Barrier 1: XGBoost routine packet classification.
-    Barrier 2: Transformer session/window classification when context exists.
-    Barrier 3: Autoencoder anomaly detection for out-of-distribution packets.
-    """
-
-    def __init__(self, sequence_len: int = 50, max_flows: int = 2048):
+    def __init__(
+        self,
+        sequence_len: int = config.SEQUENCE_LEN,
+        max_flows: int = config.MAX_FLOWS,
+    ):
         self.sequence_len = sequence_len
         self.max_flows = max_flows
         self.lock = Lock()
         self.feature_order = self._load_features()
+        self.num_features = len(self.feature_order)
         self.flow_sequences: dict[str, deque[list[float]]] = defaultdict(
             lambda: deque(maxlen=self.sequence_len)
         )
 
-        self.thresholds = {
-            "xgb_suspicious": float(os.getenv("IDPS_XGB_SUSPICIOUS_THRESHOLD", "0.60")),
-            "xgb_attack": float(os.getenv("IDPS_XGB_ATTACK_THRESHOLD", "0.85")),
-            "autoencoder": float(os.getenv("IDPS_AE_THRESHOLD", "0.02")),
-            "transformer": float(os.getenv("IDPS_TRANSFORMER_THRESHOLD", "0.50")),
-        }
+        self.routine = RoutineScorer(self.feature_order)
+        self.context = ContextScorer(self.feature_order)
+        self.anomaly = AnomalyScorer(self.feature_order)
 
-        self.xgb = self._load_xgboost()
-        self.autoencoder = self._load_autoencoder()
-        self.transformer = self._load_transformer()
+    # -- thresholds proxy (kept on settings, exposed here for compatibility) - #
+    @property
+    def thresholds(self) -> dict[str, float]:
+        return settings.thresholds
+
+    def update_thresholds(self, values: dict[str, Any]) -> dict[str, float]:
+        return settings.update_thresholds(values)
 
     def _load_features(self) -> list[str]:
         try:
-            return list(joblib.load(XGB_FEATURES_PATH))
+            return list(joblib.load(config.XGB_FEATURES_PATH))
         except Exception:
             return list(DEFAULT_FEATURES)
 
-    def _load_xgboost(self) -> ModelSlot:
-        slot = ModelSlot("xgboost")
-        try:
-            slot.model = joblib.load(XGB_MODEL_PATH)
-            slot.scaler = joblib.load(XGB_SCALER_PATH)
-            slot.available = True
-        except Exception as exc:
-            slot.error = str(exc)
-        return slot
-
-    def _load_autoencoder(self) -> ModelSlot:
-        slot = ModelSlot("autoencoder")
-        try:
-            import tensorflow as tf
-
-            slot.model = tf.keras.models.load_model(AE_MODEL_PATH, compile=False)
-            slot.scaler = joblib.load(AE_SCALER_PATH)
-            slot.available = True
-        except Exception as exc:
-            slot.error = str(exc)
-        return slot
-
-    def _load_transformer(self) -> ModelSlot:
-        slot = ModelSlot("transformer")
-        try:
-            import tensorflow as tf
-
-            slot.model = tf.keras.models.load_model(TRANSFORMER_MODEL_PATH, compile=False)
-            slot.available = True
-        except Exception as exc:
-            slot.error = str(exc)
-        return slot
+    def reload_models(self) -> dict[str, Any]:
+        """Reload all scorers from disk (e.g. after retraining or installing deps)."""
+        with self.lock:
+            self.feature_order = self._load_features()
+            self.num_features = len(self.feature_order)
+            self.routine = RoutineScorer(self.feature_order)
+            self.context = ContextScorer(self.feature_order)
+            self.anomaly = AnomalyScorer(self.feature_order)
+        return self.health()
 
     def health(self) -> dict[str, Any]:
         return {
             "feature_order": self.feature_order,
             "sequence_len": self.sequence_len,
-            "thresholds": self.thresholds,
+            "transformer_pad_early": config.TRANSFORMER_PAD_EARLY,
+            "thresholds": dict(settings.thresholds),
             "models": {
-                "xgboost": self.xgb.health(),
-                "autoencoder": self.autoencoder.health(),
-                "transformer": self.transformer.health(),
+                "xgboost": health_of(self.routine),
+                "autoencoder": health_of(self.anomaly),
+                "transformer": health_of(self.context),
             },
         }
 
-    def update_thresholds(self, values: dict[str, Any]) -> dict[str, float]:
-        for key in self.thresholds:
-            if key in values:
-                self.thresholds[key] = float(values[key])
-        return dict(self.thresholds)
-
+    # -- flow bookkeeping --------------------------------------------------- #
     def _flow_key(self, metadata: dict[str, Any] | None) -> str:
         if not metadata:
             return "global"
-
         src = metadata.get("src_ip") or metadata.get("source") or "unknown-src"
         dst = metadata.get("dst_ip") or metadata.get("destination") or "unknown-dst"
         proto = metadata.get("protocol") or metadata.get("ip.proto") or "ip"
@@ -139,60 +109,50 @@ class DecisionEngine:
 
     def _remember_sequence(self, flow_key: str, frame) -> int:
         with self.lock:
-            if len(self.flow_sequences) > self.max_flows and flow_key not in self.flow_sequences:
+            if (
+                len(self.flow_sequences) > self.max_flows
+                and flow_key not in self.flow_sequences
+            ):
                 oldest_key = next(iter(self.flow_sequences))
                 self.flow_sequences.pop(oldest_key, None)
 
-            self.flow_sequences[flow_key].append(frame_to_sequence_row(frame, self.feature_order))
+            self.flow_sequences[flow_key].append(
+                frame_to_sequence_row(frame, self.feature_order)
+            )
             return len(self.flow_sequences[flow_key])
 
-    def _get_sequence(self, flow_key: str, explicit_sequence: Any | None) -> np.ndarray | None:
+    def _get_sequence(
+        self, flow_key: str, explicit_sequence: Any | None
+    ) -> tuple[np.ndarray | None, bool]:
+        """Return (sequence_tensor, is_padded).
+
+        With pad-early enabled, a flow with at least ``TRANSFORMER_MIN_CONTEXT``
+        real packets is left-padded with zeros up to ``sequence_len`` so the
+        context barrier can produce an early read. Otherwise None is returned
+        and the barrier stays WAITING.
+        """
         if explicit_sequence is not None:
             array = np.asarray(explicit_sequence, dtype=float)
             if array.ndim == 2:
                 array = np.expand_dims(array, axis=0)
-            return array
+            return array, False
 
         with self.lock:
             values = list(self.flow_sequences.get(flow_key, []))
 
-        if len(values) < self.sequence_len:
-            return None
+        if len(values) >= self.sequence_len:
+            window = values[-self.sequence_len :]
+            return np.asarray([window], dtype=float), False
 
-        return np.asarray([values[-self.sequence_len :]], dtype=float)
+        if config.TRANSFORMER_PAD_EARLY and len(values) >= config.TRANSFORMER_MIN_CONTEXT:
+            pad_count = self.sequence_len - len(values)
+            padding = [[0.0] * self.num_features for _ in range(pad_count)]
+            window = padding + values
+            return np.asarray([window], dtype=float), True
 
-    def _xgb_score(self, frame) -> tuple[float | None, str | None]:
-        if not self.xgb.available:
-            return None, self.xgb.error
-        try:
-            x = self.xgb.scaler.transform(frame[self.feature_order])
-            if hasattr(self.xgb.model, "predict_proba"):
-                return float(self.xgb.model.predict_proba(x)[0][1]), None
-            return float(self.xgb.model.predict(x)[0]), None
-        except Exception as exc:
-            return None, str(exc)
+        return None, False
 
-    def _ae_score(self, frame) -> tuple[float | None, str | None]:
-        if not self.autoencoder.available:
-            return None, self.autoencoder.error
-        try:
-            x = self.autoencoder.scaler.transform(frame[self.feature_order])
-            reconstruction = self.autoencoder.model.predict(x, verbose=0)
-            return float(np.mean(np.power(x - reconstruction, 2))), None
-        except Exception as exc:
-            return None, str(exc)
-
-    def _transformer_score(self, sequence: np.ndarray | None) -> tuple[float | None, str | None]:
-        if sequence is None:
-            return None, "waiting for sequence context"
-        if not self.transformer.available:
-            return None, self.transformer.error
-        try:
-            pred = self.transformer.model.predict(sequence, verbose=0)
-            return float(np.ravel(pred)[0]), None
-        except Exception as exc:
-            return None, str(exc)
-
+    # -- main entry point --------------------------------------------------- #
     def analyze_packet(
         self,
         packet: Any,
@@ -200,33 +160,37 @@ class DecisionEngine:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
+        th = settings.thresholds
         frame = packets_to_frame(packet, self.feature_order)
         flow_key = self._flow_key(metadata)
         sequence_size = self._remember_sequence(flow_key, frame)
 
         xgb_started = time.perf_counter()
-        xgb_score, xgb_error = self._xgb_score(frame)
+        xgb_score, xgb_error = self.routine.score(frame)
         xgb_latency = (time.perf_counter() - xgb_started) * 1000
 
         ae_started = time.perf_counter()
-        ae_score, ae_error = self._ae_score(frame)
+        ae_score, ae_error = self.anomaly.score(frame)
         ae_latency = (time.perf_counter() - ae_started) * 1000
 
-        xgb_suspicious = xgb_score is not None and xgb_score >= self.thresholds["xgb_suspicious"]
-        ae_anomaly = ae_score is not None and ae_score >= self.thresholds["autoencoder"]
+        xgb_suspicious = xgb_score is not None and xgb_score >= th["xgb_suspicious"]
+        ae_anomaly = ae_score is not None and ae_score >= th["autoencoder"]
         needs_context = xgb_suspicious or ae_anomaly or sequence is not None
+
         transformer_score = None
         transformer_error = None
         transformer_latency = 0.0
+        transformer_padded = False
 
         if needs_context:
+            seq_tensor, transformer_padded = self._get_sequence(flow_key, sequence)
             transformer_started = time.perf_counter()
-            transformer_score, transformer_error = self._transformer_score(
-                self._get_sequence(flow_key, sequence)
-            )
+            transformer_score, transformer_error = self.context.score(seq_tensor)
             transformer_latency = (time.perf_counter() - transformer_started) * 1000
 
-        status, severity, reason = self._decide(xgb_score, ae_score, transformer_score)
+        status, severity, reason = self._decide(
+            xgb_score, ae_score, transformer_score, transformer_padded
+        )
         threat_score = self._threat_score(xgb_score, ae_score, transformer_score)
 
         return {
@@ -239,23 +203,29 @@ class DecisionEngine:
                 "required": needs_context,
                 "length": sequence_size,
                 "ready": sequence is not None or sequence_size >= self.sequence_len,
+                "padded": transformer_padded,
                 "target_length": self.sequence_len,
             },
             "barriers": {
                 "routine_xgboost": {
                     "score": xgb_score,
-                    "threshold": self.thresholds["xgb_suspicious"],
-                    "attack_threshold": self.thresholds["xgb_attack"],
-                    "state": self._state_for_score(xgb_score, self.thresholds["xgb_suspicious"], xgb_error),
+                    "threshold": th["xgb_suspicious"],
+                    "attack_threshold": th["xgb_attack"],
+                    "mode": self.routine.mode,
+                    "state": self._state_for_score(
+                        xgb_score, th["xgb_suspicious"], xgb_error
+                    ),
                     "latency_ms": round(xgb_latency, 3),
                     "error": xgb_error,
                 },
                 "context_transformer": {
                     "score": transformer_score,
-                    "threshold": self.thresholds["transformer"],
+                    "threshold": th["transformer"],
+                    "padded": transformer_padded,
+                    "mode": self.context.mode,
                     "state": self._state_for_score(
                         transformer_score,
-                        self.thresholds["transformer"],
+                        th["transformer"],
                         transformer_error,
                         waiting_text="WAITING",
                     ),
@@ -264,8 +234,11 @@ class DecisionEngine:
                 },
                 "zero_day_autoencoder": {
                     "score": ae_score,
-                    "threshold": self.thresholds["autoencoder"],
-                    "state": self._state_for_score(ae_score, self.thresholds["autoencoder"], ae_error),
+                    "threshold": th["autoencoder"],
+                    "mode": self.anomaly.mode,
+                    "state": self._state_for_score(
+                        ae_score, th["autoencoder"], ae_error
+                    ),
                     "latency_ms": round(ae_latency, 3),
                     "error": ae_error,
                 },
@@ -289,23 +262,40 @@ class DecisionEngine:
         xgb_score: float | None,
         ae_score: float | None,
         transformer_score: float | None,
+        transformer_padded: bool = False,
     ) -> tuple[str, str, str]:
-        xgb_attack = xgb_score is not None and xgb_score >= self.thresholds["xgb_attack"]
-        xgb_suspicious = xgb_score is not None and xgb_score >= self.thresholds["xgb_suspicious"]
-        ae_anomaly = ae_score is not None and ae_score >= self.thresholds["autoencoder"]
+        th = settings.thresholds
+        xgb_attack = xgb_score is not None and xgb_score >= th["xgb_attack"]
+        xgb_suspicious = xgb_score is not None and xgb_score >= th["xgb_suspicious"]
+        ae_anomaly = ae_score is not None and ae_score >= th["autoencoder"]
         session_attack = (
-            transformer_score is not None
-            and transformer_score >= self.thresholds["transformer"]
+            transformer_score is not None and transformer_score >= th["transformer"]
         )
 
-        if session_attack:
+        # A padded (early, low-confidence) context read is downgraded from a
+        # hard ATTACK to SUSPICIOUS so we don't over-trust partial context.
+        if session_attack and not transformer_padded:
             return "ATTACK", "critical", "Transformer confirmed hostile sequence context."
+        if session_attack and transformer_padded:
+            return (
+                "SUSPICIOUS",
+                "high",
+                "Transformer flagged the flow on partial (early) context.",
+            )
         if xgb_attack and ae_anomaly:
-            return "ATTACK", "high", "Routine classifier and anomaly detector both crossed attack policy."
+            return (
+                "ATTACK",
+                "high",
+                "Routine classifier and anomaly detector both crossed attack policy.",
+            )
         if xgb_attack:
             return "ATTACK", "high", "Routine XGBoost barrier crossed attack threshold."
         if ae_anomaly and xgb_suspicious:
-            return "SUSPICIOUS", "medium", "Packet is suspicious and outside normal reconstruction range."
+            return (
+                "SUSPICIOUS",
+                "medium",
+                "Packet is suspicious and outside normal reconstruction range.",
+            )
         if ae_anomaly:
             return "SUSPICIOUS", "medium", "Autoencoder found out-of-ordinary packet behavior."
         if xgb_suspicious:
@@ -320,13 +310,14 @@ class DecisionEngine:
         ae_score: float | None,
         transformer_score: float | None,
     ) -> float:
+        th = settings.thresholds
         candidates = []
         if xgb_score is not None:
             candidates.append(float(np.clip(xgb_score, 0, 1)))
         if transformer_score is not None:
             candidates.append(float(np.clip(transformer_score, 0, 1)))
         if ae_score is not None:
-            threshold = max(self.thresholds["autoencoder"], 1e-9)
+            threshold = max(th["autoencoder"], 1e-9)
             candidates.append(float(np.clip(ae_score / (threshold * 2), 0, 1)))
         return round(max(candidates) if candidates else 0.0, 4)
 
@@ -334,5 +325,7 @@ class DecisionEngine:
 engine = DecisionEngine()
 
 
-def analyze_packet(packet_df: Any, sequence: Any | None = None, metadata: dict[str, Any] | None = None):
+def analyze_packet(
+    packet_df: Any, sequence: Any | None = None, metadata: dict[str, Any] | None = None
+):
     return engine.analyze_packet(packet_df, sequence=sequence, metadata=metadata)

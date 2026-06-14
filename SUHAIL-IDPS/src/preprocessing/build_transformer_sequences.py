@@ -1,16 +1,22 @@
+import os
 import pandas as pd
 import numpy as np
 
 # =========================
 # CONFIG
 # =========================
-ATTACK_FILE = "attack_processed.csv"
-NORMAL_FILE = "normal_processed.csv"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+RAW = os.path.join(BASE_DIR, "data", "raw")
+SEQ_DIR = os.path.join(BASE_DIR, "data", "sequences")
+os.makedirs(SEQ_DIR, exist_ok=True)
+
+ATTACK_FILE = os.path.join(RAW, "attack_processed.csv")
+NORMAL_FILE = os.path.join(RAW, "normal_processed.csv")
 
 SEQ_LEN = 50        # packets per sequence
 STRIDE = 10         # sliding window step
 
-OUTPUT_FILE = "transformer_sequences.csv"
+OUTPUT_FILE = os.path.join(SEQ_DIR, "transformer_sequences.csv")
 
 # =========================
 # LOAD DATA

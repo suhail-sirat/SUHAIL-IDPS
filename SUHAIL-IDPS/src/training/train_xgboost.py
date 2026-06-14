@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import joblib
 from sklearn.model_selection import train_test_split
@@ -5,11 +6,17 @@ from xgboost import XGBClassifier
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import classification_report, confusion_matrix
 
+# Resolve paths relative to the project root so this runs from anywhere.
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+RAW = os.path.join(BASE_DIR, "data", "raw")
+XGB_OUT = os.path.join(BASE_DIR, "models", "xgboost")
+os.makedirs(XGB_OUT, exist_ok=True)
+
 # =========================
 # LOAD DATA
 # =========================
-df = pd.read_csv("attack_processed.csv")
-df2 = pd.read_csv("normal_processed.csv")
+df = pd.read_csv(os.path.join(RAW, "attack_processed.csv"))
+df2 = pd.read_csv(os.path.join(RAW, "normal_processed.csv"))
 
 df = pd.concat([df, df2], ignore_index=True)
 
@@ -68,8 +75,8 @@ print(classification_report(y_test, pred))
 # =========================
 # SAVE
 # =========================
-joblib.dump(model, "xgb_model.pkl")
-joblib.dump(scaler, "xgb_scaler.pkl")
-joblib.dump(list(X.columns), "xgb_features.pkl")
+joblib.dump(model, os.path.join(XGB_OUT, "xgb_model.pkl"))
+joblib.dump(scaler, os.path.join(XGB_OUT, "xgb_scaler.pkl"))
+joblib.dump(list(X.columns), os.path.join(XGB_OUT, "xgb_features.pkl"))
 
 print("\nXGBoost model saved")

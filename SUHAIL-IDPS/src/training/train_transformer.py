@@ -1,12 +1,18 @@
+import os
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+SEQ_PATH = os.path.join(BASE_DIR, "data", "sequences", "transformer_sequences.csv")
+TR_OUT = os.path.join(BASE_DIR, "models", "transformer")
+os.makedirs(TR_OUT, exist_ok=True)
+
 # =========================
 # LOAD SEQUENCE DATA
 # =========================
-df = pd.read_csv("transformer_sequences.csv")
+df = pd.read_csv(SEQ_PATH)
 
 y = df["label"].values
 X = df.drop("label", axis=1).values
@@ -78,6 +84,6 @@ model.fit(
 # =========================
 # SAVE
 # =========================
-model.save("transformer_model.h5")
+model.save(os.path.join(TR_OUT, "transformer_model.h5"))
 
 print("\nTransformer model saved")

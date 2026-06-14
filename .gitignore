@@ -1,1 +1,14 @@
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDPS runtime state (persisted settings, generated at runtime)
+SUHAIL-IDPS/config.runtime.json
+SUHAIL-IDPS/logs/*.log
+
+# Exports / scratch
+*.ndjson
+.DS_Store

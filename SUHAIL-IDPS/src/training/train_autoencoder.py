@@ -1,13 +1,19 @@
+import os
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+RAW = os.path.join(BASE_DIR, "data", "raw")
+AE_OUT = os.path.join(BASE_DIR, "models", "autoencoder")
+os.makedirs(AE_OUT, exist_ok=True)
+
 # =========================
 # LOAD NORMAL DATA ONLY
 # =========================
-df = pd.read_csv("normal_processed.csv")
+df = pd.read_csv(os.path.join(RAW, "normal_processed.csv"))
 df = df.fillna(0)
 
 if df["tcp.flags"].dtype == "object":
@@ -52,7 +58,7 @@ model.fit(
 # =========================
 # SAVE
 # =========================
-model.save("autoencoder.h5")
-joblib.dump(scaler, "ae_scaler.pkl")
+model.save(os.path.join(AE_OUT, "autoencoder.h5"))
+joblib.dump(scaler, os.path.join(AE_OUT, "ae_scaler.pkl"))
 
 print("\nAutoencoder trained and saved")
