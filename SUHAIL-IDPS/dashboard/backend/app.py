@@ -36,13 +36,15 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.core import config  # noqa: E402
 from src.core.config import settings  # noqa: E402
 from src.core.decision_engine import engine  # noqa: E402
-from src.core.features import DEFAULT_FEATURES  # noqa: E402
+from src.core.flow_features import FLOW_FEATURES  # noqa: E402
+from src.live_ids.flow_source import LiveFlowSource  # noqa: E402
 
 app = Flask(__name__)
 
 FRONTEND_DIR = PROJECT_ROOT / "dashboard" / "frontend"
-NORMAL_FILE = config.DATA_DIR / "normal_processed.csv"
-ATTACK_FILE = config.DATA_DIR / "attack_processed.csv"
+# Flow datasets produced by the preprocessing pipeline (data/flows). When absent,
+# replay generates synthetic flows so the dashboard always has live traffic.
+FLOWS_DIR = config.FLOWS_DIR
 
 EVENTS: deque[dict[str, Any]] = deque(maxlen=2000)
 ALERTS: deque[dict[str, Any]] = deque(maxlen=500)
@@ -250,10 +252,10 @@ def analyze():
     if request.method == "OPTIONS":
         return ("", 204)
     payload = request.get_json(force=True)
-    packet = payload.get("packet", payload)
-    sequence = payload.get("sequence")
+    # accept either {"flow": {...}} / {"packet": {...}} / a bare feature dict
+    features = payload.get("flow") or payload.get("packet") or payload
     metadata = payload.get("metadata", {})
-    event = process_packet(packet, metadata=metadata, sequence=sequence, source="api")
+    event = process_flow(features, metadata=metadata, source="api")
     return jsonify(event)
 
 
@@ -389,17 +391,18 @@ def stream():
 
 
 # --------------------------------------------------------------------------- #
-# Core packet processing
+# Core flow processing
 # --------------------------------------------------------------------------- #
-def process_packet(
-    packet: dict[str, Any],
+def process_flow(
+    features: dict[str, Any],
     metadata: dict[str, Any] | None = None,
-    sequence: Any | None = None,
     source: str = "live",
+    final: bool = True,
 ) -> dict[str, Any]:
+    """Score one bidirectional-flow feature vector and emit a dashboard event."""
     global FRAME_COUNTER
     metadata = metadata or {}
-    result = engine.analyze_packet(packet, sequence=sequence, metadata=metadata)
+    result = engine.analyze_flow(features, metadata=metadata)
 
     with LOCK:
         FRAME_COUNTER += 1
@@ -409,14 +412,25 @@ def process_packet(
         "id": event_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": source,
+        "final": final,
         "metadata": metadata,
-        "packet": {key: packet.get(key, 0) for key in DEFAULT_FEATURES},
+        "flow": {name: round(float(features.get(name, 0)), 4) for name in FLOW_FEATURES},
         "result": result,
         "action": maybe_respond(metadata, result),
     }
     record_event(event)
     publish(event)
     return event
+
+
+# Back-compat: /api/analyze and tests may post a raw feature dict.
+def process_packet(
+    packet: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    sequence: Any | None = None,
+    source: str = "api",
+) -> dict[str, Any]:
+    return process_flow(packet, metadata=metadata, source=source)
 
 
 def record_event(event: dict[str, Any]) -> None:
@@ -572,65 +586,79 @@ def top_sources() -> list[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- #
-# Replay
+# Replay - synthesises flow feature vectors so the dashboard has live traffic
+# for demos/testing without needing a capture. If a trained-data flow CSV exists
+# it is replayed verbatim; otherwise realistic normal/attack flows are generated.
 # --------------------------------------------------------------------------- #
+import random  # noqa: E402
+
+from src.preprocessing.synth_flows import generate_flow  # noqa: E402
+
+
 def replay_packets(profile: str, speed: float, limit: int) -> None:
-    files = []
-    if profile in {"normal", "mixed"}:
-        files.append((NORMAL_FILE, "normal-replay"))
-    if profile in {"attack", "mixed"}:
-        files.append((ATTACK_FILE, "attack-replay"))
+    # Prefer real labelled flows if the user has built a dataset.
+    csv_path = FLOWS_DIR / "all_flows.csv"
+    if csv_path.exists():
+        _replay_from_csv(csv_path, profile, speed, limit)
+        return
 
-    handles = []
-    readers = []
-    try:
-        for path, label in files:
-            handle = path.open(newline="")
-            handles.append(handle)
-            readers.append((csv.DictReader(handle), label))
+    rng = random.Random(1234)
+    emitted = 0
+    delay = 1.0 / max(speed, 1.0)
+    hosts = [f"10.10.{1 if a else 2}.{h}" for a in (0, 1) for h in range(10, 18)]
 
-        emitted = 0
-        delay = 1.0 / speed
-        while not REPLAY_STOP.is_set():
-            made_progress = False
-            for reader, label in readers:
-                if REPLAY_STOP.is_set():
-                    break
-                try:
-                    row = next(reader)
-                except StopIteration:
-                    continue
-                made_progress = True
-                row.pop("label", None)
-                metadata = replay_metadata(row, label)
-                process_packet(row, metadata=metadata, source=label)
-                emitted += 1
-                if limit and emitted >= limit:
-                    REPLAY_STOP.set()
-                    break
-                time.sleep(delay)
-            if not made_progress:
-                break
-    finally:
-        for handle in handles:
-            handle.close()
+    while not REPLAY_STOP.is_set():
+        if profile == "attack":
+            is_attack = True
+        elif profile == "normal":
+            is_attack = False
+        else:  # mixed
+            is_attack = rng.random() < 0.4
+
+        host = rng.choice([h for h in hosts if h.startswith("10.10.1")] if is_attack
+                          else [h for h in hosts if h.startswith("10.10.2")])
+        features, meta = generate_flow(is_attack, host, rng)
+        label = "attack-replay" if is_attack else "normal-replay"
+        process_flow(features, metadata={**meta, "label": label}, source=label)
+
+        emitted += 1
+        if limit and emitted >= limit:
+            break
+        time.sleep(delay)
 
 
-def replay_metadata(row: dict[str, Any], label: str) -> dict[str, Any]:
-    # Use a small, stable pool of source hosts so consecutive packets share a
-    # flow key and accumulate enough sequence context for the transformer
-    # (context) barrier to engage - otherwise every packet looks like a brand
-    # new flow and the broader-view barrier never sees a window.
-    is_attack = label.startswith("attack")
-    host = int(float(row.get("frame.number", 1) or 1)) % 6 + 10
-    return {
-        "src_ip": f"10.10.{1 if is_attack else 2}.{host}",
-        "dst_ip": "10.10.0.5",
-        "protocol": protocol_name(row.get("ip.proto")),
-        "src_port": int(float(row.get("tcp.srcport") or row.get("udp.srcport") or 0)),
-        "dst_port": int(float(row.get("tcp.dstport") or row.get("udp.dstport") or 0)),
-        "label": label,
-    }
+def _replay_from_csv(csv_path: Path, profile: str, speed: float, limit: int) -> None:
+    import pandas as pd
+
+    df = pd.read_csv(csv_path).fillna(0)
+    if profile == "attack":
+        df = df[df["label"] == 1]
+    elif profile == "normal":
+        df = df[df["label"] == 0]
+    df = df.sample(frac=1.0).reset_index(drop=True)
+
+    delay = 1.0 / max(speed, 1.0)
+    emitted = 0
+    for _, row in df.iterrows():
+        if REPLAY_STOP.is_set():
+            break
+        features = {name: float(row.get(name, 0)) for name in FLOW_FEATURES}
+        is_attack = int(row.get("label", 0)) == 1
+        src = str(row.get("src_ip") or (f"10.10.1.{emitted % 8 + 10}" if is_attack
+                                        else f"10.10.2.{emitted % 8 + 10}"))
+        meta = {
+            "src_ip": src,
+            "dst_ip": str(row.get("dst_ip", "10.10.0.5")),
+            "protocol": protocol_name(features.get("protocol")),
+            "src_port": 0,
+            "dst_port": int(features.get("dst_port", 0)),
+            "label": "attack-replay" if is_attack else "normal-replay",
+        }
+        process_flow(features, metadata=meta, source=meta["label"])
+        emitted += 1
+        if limit and emitted >= limit:
+            break
+        time.sleep(delay)
 
 
 # --------------------------------------------------------------------------- #
@@ -672,15 +700,23 @@ def list_interfaces() -> list[dict[str, Any]]:
     return out
 
 
+CAPTURE_SOURCE: LiveFlowSource | None = None
+
+
 def capture_packets(interface: str | None, bpf_filter: str) -> None:
+    global CAPTURE_SOURCE
+    CAPTURE_SOURCE = LiveFlowSource(protocol_name)
     try:
         from scapy.all import sniff
 
+        # Periodically flush idle flows even if no new packet arrives, so the
+        # dashboard finalises quiet flows in a timely way.
         sniff(
             iface=interface,
             filter=bpf_filter,
             prn=process_scapy_packet,
             store=False,
+            timeout=None,
             stop_filter=lambda _: CAPTURE_STOP.is_set(),
         )
     except Exception as exc:
@@ -690,7 +726,7 @@ def capture_packets(interface: str | None, bpf_filter: str) -> None:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "capture-error",
                 "metadata": {"error": str(exc)},
-                "packet": {},
+                "flow": {},
                 "result": {
                     "status": "UNKNOWN",
                     "severity": "low",
@@ -701,44 +737,51 @@ def capture_packets(interface: str | None, bpf_filter: str) -> None:
                 "action": {"type": "observe", "message": str(exc)},
             }
         )
+    finally:
+        # finalise whatever flows were still open when capture stopped
+        if CAPTURE_SOURCE is not None:
+            for ev in CAPTURE_SOURCE.flush():
+                process_flow(ev["features"], metadata=ev["metadata"],
+                             source="capture", final=ev["final"])
 
 
 def process_scapy_packet(pkt) -> None:
-    global LAST_PACKET_TS
+    """Turn a scapy packet into a normalised packet dict, assemble it into a
+    flow, and score any flows that emit."""
     try:
         from scapy.all import ICMP, IP, TCP, UDP
 
-        if IP not in pkt:
+        if IP not in pkt or CAPTURE_SOURCE is None:
             return
 
-        now = time.time()
-        delta = 0 if LAST_PACKET_TS is None else now - LAST_PACKET_TS
-        LAST_PACKET_TS = now
+        ip = pkt[IP]
+        proto = int(ip.proto)
+        src_port = dst_port = tcp_flags = l4 = 0
+        if TCP in pkt:
+            src_port, dst_port = int(pkt[TCP].sport), int(pkt[TCP].dport)
+            tcp_flags = int(pkt[TCP].flags)
+            l4 = int(pkt[TCP].dataofs or 5) * 4
+        elif UDP in pkt:
+            src_port, dst_port = int(pkt[UDP].sport), int(pkt[UDP].dport)
+            l4 = 8
+        elif ICMP in pkt:
+            l4 = 8
 
         packet = {
-            "frame.number": FRAME_COUNTER + 1,
-            "frame.time_relative": now - STARTED_AT,
-            "frame.len": len(pkt),
-            "frame.time_delta": delta,
-            "ip.proto": pkt[IP].proto,
-            "tcp.srcport": pkt[TCP].sport if TCP in pkt else 0,
-            "tcp.dstport": pkt[TCP].dport if TCP in pkt else 0,
-            "udp.srcport": pkt[UDP].sport if UDP in pkt else 0,
-            "udp.dstport": pkt[UDP].dport if UDP in pkt else 0,
-            "tcp.flags": int(pkt[TCP].flags) if TCP in pkt else 0,
-            "icmp.type": pkt[ICMP].type if ICMP in pkt else 0,
-            "icmp.seq": getattr(pkt[ICMP], "seq", 0) if ICMP in pkt else 0,
-            "mqtt.msgtype": 0,
+            "ts": float(pkt.time) if hasattr(pkt, "time") else time.time(),
+            "length": int(len(pkt)),
+            "proto": proto,
+            "src_ip": str(ip.src),
+            "dst_ip": str(ip.dst),
+            "src_port": src_port,
+            "dst_port": dst_port,
+            "header_len": int(getattr(ip, "ihl", 5) or 5) * 4 + l4,
+            "tcp_flags": tcp_flags,
         }
-        metadata = {
-            "src_ip": pkt[IP].src,
-            "dst_ip": pkt[IP].dst,
-            "protocol": protocol_name(pkt[IP].proto),
-            "src_port": packet["tcp.srcport"] or packet["udp.srcport"],
-            "dst_port": packet["tcp.dstport"] or packet["udp.dstport"],
-            "interface": CAPTURE_INFO.get("interface"),
-        }
-        process_packet(packet, metadata=metadata, source="capture")
+        for ev in CAPTURE_SOURCE.feed(packet):
+            meta = {**ev["metadata"], "interface": CAPTURE_INFO.get("interface")}
+            process_flow(ev["features"], metadata=meta, source="capture",
+                         final=ev["final"])
     except Exception as exc:
         print("Packet processing error:", exc)
 

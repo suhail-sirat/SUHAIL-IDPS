@@ -32,22 +32,31 @@ XGB_MODEL_PATH = MODELS_DIR / "xgboost" / "xgb_model.pkl"
 XGB_SCALER_PATH = MODELS_DIR / "xgboost" / "xgb_scaler.pkl"
 XGB_FEATURES_PATH = MODELS_DIR / "xgboost" / "xgb_features.pkl"
 
-AE_MODEL_PATH = MODELS_DIR / "autoencoder" / "autoencoder.h5"
+AE_MODEL_PATH = MODELS_DIR / "autoencoder" / "autoencoder.keras"
+AE_MODEL_PATH_H5 = MODELS_DIR / "autoencoder" / "autoencoder.h5"
 AE_SCALER_PATH = MODELS_DIR / "autoencoder" / "ae_scaler.pkl"
+AE_THRESHOLD_PATH = MODELS_DIR / "autoencoder" / "ae_threshold.pkl"
 
-TRANSFORMER_MODEL_PATH = MODELS_DIR / "transformer" / "transformer_model.h5"
+TRANSFORMER_MODEL_PATH = MODELS_DIR / "transformer" / "transformer_model.keras"
+TRANSFORMER_MODEL_PATH_H5 = MODELS_DIR / "transformer" / "transformer_model.h5"
+TRANSFORMER_SCALER_PATH = MODELS_DIR / "transformer" / "transformer_scaler.pkl"
+
+# Where flow datasets live (produced by the preprocessing scripts).
+FLOWS_DIR = BASE_DIR / "data" / "flows"
 
 # --------------------------------------------------------------------------- #
-# Sequence / flow parameters (must match training: SEQ_LEN=50, 13 features)
+# Flow / sequence parameters.
+# The context barrier groups SEQUENCE_LEN consecutive flows (per source host)
+# into one window; must match flow_features.SEQUENCE_LEN used at training time.
 # --------------------------------------------------------------------------- #
-SEQUENCE_LEN = int(os.getenv("IDPS_SEQUENCE_LEN", "50"))
-MAX_FLOWS = int(os.getenv("IDPS_MAX_FLOWS", "4096"))
+SEQUENCE_LEN = int(os.getenv("IDPS_SEQUENCE_LEN", "16"))
+MAX_FLOWS = int(os.getenv("IDPS_MAX_FLOWS", "8192"))
 
-# When True the transformer pads short flows up to SEQUENCE_LEN and scores
-# early (lower confidence) instead of waiting for a full real window.
+# When True the transformer pads short host-histories up to SEQUENCE_LEN and
+# scores early (lower confidence) instead of waiting for a full real window.
 TRANSFORMER_PAD_EARLY = os.getenv("IDPS_TRANSFORMER_PAD_EARLY", "1") == "1"
-# Minimum real packets in a flow before an early/padded transformer read.
-TRANSFORMER_MIN_CONTEXT = int(os.getenv("IDPS_TRANSFORMER_MIN_CONTEXT", "8"))
+# Minimum real flows in a host history before an early/padded transformer read.
+TRANSFORMER_MIN_CONTEXT = int(os.getenv("IDPS_TRANSFORMER_MIN_CONTEXT", "3"))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -57,12 +66,27 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _trained_ae_threshold(default: float) -> float:
+    """Use the autoencoder's persisted (data-derived) threshold if available."""
+    try:
+        import joblib
+
+        if AE_THRESHOLD_PATH.exists():
+            data = joblib.load(AE_THRESHOLD_PATH)
+            if isinstance(data, dict) and data.get("threshold"):
+                return float(data["threshold"])
+    except Exception:
+        pass
+    return default
+
+
 # Default decision thresholds. The autoencoder threshold is a reconstruction
-# error (MSE) cutoff; the others are probabilities in [0, 1].
+# error (MSE) cutoff (taken from the trained model when present); the others are
+# probabilities in [0, 1].
 DEFAULT_THRESHOLDS: dict[str, float] = {
     "xgb_suspicious": _env_float("IDPS_XGB_SUSPICIOUS_THRESHOLD", 0.60),
     "xgb_attack": _env_float("IDPS_XGB_ATTACK_THRESHOLD", 0.85),
-    "autoencoder": _env_float("IDPS_AE_THRESHOLD", 0.02),
+    "autoencoder": _trained_ae_threshold(_env_float("IDPS_AE_THRESHOLD", 0.05)),
     "transformer": _env_float("IDPS_TRANSFORMER_THRESHOLD", 0.50),
 }
 

@@ -12,3 +12,8 @@ SUHAIL-IDPS/logs/*.log
 # Exports / scratch
 *.ndjson
 .DS_Store
+
+# Flow datasets + captures (large, user-generated)
+SUHAIL-IDPS/data/flows/*.csv
+SUHAIL-IDPS/captures/*.pcap
+SUHAIL-IDPS/models/**/*.keras

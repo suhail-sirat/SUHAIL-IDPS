@@ -1,97 +1,92 @@
 # TODOS — manual steps for you
 
-These are things I (the assistant) could **not** do in this environment, or that
-are optional improvements. The system is fully working without them — they make
-it *better* or *more accurate*. Ordered by impact.
+The system is fully working in **surrogate mode** without any of these. They make
+it *better* / *more accurate*. Ordered by impact.
 
 ---
 
-## 1. Install the real model dependencies (HIGH IMPACT, recommended)
+## 1. Collect a real dataset and train the models (HIGH IMPACT)
 
-**Why it matters.** Right now the three barriers run in **surrogate mode** —
-lightweight, dependency-free approximations I built so the whole system works on
-this machine today (you asked me not to install TensorFlow / XGBoost). The real
-trained models (`xgb_model.pkl`, `transformer_model.h5`, `autoencoder.h5`) are
-present on disk but **can't be loaded** because their runtime libraries aren't
-installed:
+This is the big one and it's now a clean, documented pipeline. Full instructions
+with copy-paste `tcpdump` + attack commands are in **`DATA_COLLECTION.md`**.
 
-- `xgboost` — needed to unpickle and run `xgb_model.pkl` (Barrier 1).
-- `tensorflow` (or `tensorflow-cpu`) — needed to load both `.h5` Keras models
-  (Barrier 2 transformer + Barrier 3 autoencoder).
+Short version:
 
-**What to do** (when you have a good connection / the downloads available):
+```bash
+cd SUHAIL-IDPS
+
+# 1. capture normal + attack PCAPs (see DATA_COLLECTION.md for the commands)
+#    sudo tcpdump -i <iface> -nn -s 0 ip -w captures/normal.pcap        (normal)
+#    sudo tcpdump ... + nmap/hping3/slowhttptest                        (attacks)
+
+# 2. PCAP -> flow CSVs
+python3 src/preprocessing/pcap_to_flows.py --pcap captures/normal.pcap  --label 0 --out data/flows/normal_flows.csv
+python3 src/preprocessing/pcap_to_flows.py --pcap captures/attack_*.pcap --label 1 --out data/flows/attack_flows.csv
+
+# 3. merge + build sequences
+python3 src/preprocessing/merge_flows.py --in data/flows/normal_flows.csv data/flows/attack_flows.csv --out data/flows/all_flows.csv
+python3 src/preprocessing/build_flow_sequences.py --in data/flows/all_flows.csv --out data/flows/flow_sequences.csv
+
+# 4. train (needs xgboost + tensorflow — see step 2 below)
+python3 src/training/train_xgboost.py     --data data/flows/all_flows.csv
+python3 src/training/train_autoencoder.py --data data/flows/all_flows.csv
+python3 src/training/train_transformer.py --data data/flows/flow_sequences.csv
+```
+
+Then **Models → Reload Models** in the dashboard (or restart). Barrier tags flip
+from `surrogate` to `model`.
+
+---
+
+## 2. Install the training/serving model dependencies
+
+The trained models need two libraries that aren't installed here (you asked me
+not to install them):
 
 ```bash
 cd SUHAIL-IDPS
 python3 -m pip install xgboost tensorflow-cpu
 ```
 
-Then either restart the backend, or just open the dashboard → **Models** page →
-click **Reload Models**. The barrier tags will flip from `surrogate` to `model`.
+- `xgboost` — Barrier 1 (routine). Without it the training script exits with a
+  clear message and live serving uses the surrogate.
+- `tensorflow-cpu` — Barriers 2 & 3 (transformer + autoencoder).
 
-> Note: the surrogates are calibrated against the real data and separate normal
-> vs. attack traffic cleanly, but the genuine neural models will be more
-> accurate on subtle / novel patterns. Surrogate vs. model is always shown in
-> the UI so you know which is active.
-
----
-
-## 2. Retrain the models (OPTIONAL — only if you want fresh metrics)
-
-You said you don't want to retrain right now (no TensorFlow yet). When you do,
-the training scripts now resolve their own paths correctly (I fixed them — they
-used to assume the CSVs were in the current directory):
-
-```bash
-cd SUHAIL-IDPS
-python3 src/preprocessing/build_transformer_sequences.py   # rebuild sequences
-python3 src/training/train_xgboost.py
-python3 src/training/train_autoencoder.py
-python3 src/training/train_transformer.py
-```
-
-**Data issue worth fixing before retraining (I left the data as-is):**
-The processed CSVs contain several columns that were **mean-imputed with a single
-constant value** (e.g. `tcp.srcport = 20977.03…` on every normal row, hex
-`tcp.flags`). That's the "averaging/accumulation" preprocessing. It works, but it
-means those columns carry almost no per-packet signal and inflate anomaly scores
-on live traffic. If you re-run your capture→CSV preprocessing, prefer keeping
-**real per-packet port/flag values** (impute only truly-missing cells, per row,
-not with a global mean). The serving pipeline already handles raw values.
-
-There are also **4 malformed rows** in `normal_processed.csv` (blank `label`).
-They're harmless (coerced to 0) but you may want to drop them at the source.
+The surrogates are calibrated to the data and separate normal vs. attack cleanly,
+but the real models will be sharper on subtle/novel patterns. The UI always shows
+which mode each barrier is in.
 
 ---
 
-## 3. Run live capture with the right privileges (when you want LIVE sniffing)
+## 3. Run live capture with the right privileges
 
-Live capture and real `iptables` blocking need **root**:
+Live capture + real `iptables` blocking need **root**:
 
 ```bash
 cd SUHAIL-IDPS
 sudo ./run.sh
 ```
 
-Then on the **Live Traffic** page pick an interface from the dropdown (it lists
-this machine's real interfaces), optionally set a source-IP / protocol filter,
-and hit **Start Capture**. Without `sudo`, capture will report a permission
-error in the UI but everything else (replay, dashboard) still works.
-
-> `iptables` is Linux-only. On this machine it's available; if you ever move to
-> a host without it, set **Settings → Dry-run = on** so blocks are simulated.
+On the **Live Traffic** page pick an interface, optionally set a source-IP /
+protocol filter, and **Start Capture**. The capture assembles packets into
+bidirectional flows in real time and scores each flow. Without `sudo`, capture
+reports a permission error in the UI but replay + the rest still work.
 
 ---
 
-## 4. Optional polish (LOW priority)
+## 4. Optional cleanup / polish (LOW priority)
 
-- **Production server:** `app.py` uses Flask's dev server. For real deployment
-  put it behind `gunicorn`/`waitress` (note: SSE needs a worker model that
-  supports streaming, e.g. `gunicorn -k gthread`).
-- **Persistent event store:** events live in memory (last 2000) and reset on
-  restart. Add SQLite if you want history across restarts.
-- **`src/preprocessing/verify_data.py` & `advanced_data_check.py`** still use
-  bare relative paths (`pd.read_csv("attack_processed.csv")`). They're just
-  diagnostics; run them from `data/raw/` or update the paths if you use them.
-- **Authentication:** the dashboard has no auth. Bind it to `127.0.0.1`
-  (`IDPS_HOST=127.0.0.1`) or put it behind a reverse proxy if exposing it.
+- **Old datasets.** `data/raw/normal_processed.csv`, `attack_processed.csv` and
+  `data/sequences/transformer_sequences.csv` are the *old per-packet* data, no
+  longer used by anything (replay now uses flows). Safe to delete once you've got
+  your own flow dataset — I left them in place rather than delete your data.
+- **Old per-packet code** moved to `../legacy/old_per_packet_pipeline/`.
+- **Production server.** `app.py` uses Flask's dev server; for deployment use
+  `gunicorn -k gthread` (SSE needs a streaming-capable worker).
+- **Persistent event store.** Events live in memory (last 2000). Add SQLite if
+  you want history across restarts.
+- **Auth.** No authentication. Bind to `127.0.0.1` (`IDPS_HOST=127.0.0.1`) or put
+  it behind a reverse proxy if you expose it.
+- **CICFlowMeter parity.** The flow schema is a focused ~50-feature subset. If you
+  want to compare against published CIC-IDS2017 numbers, you can extend
+  `flow_features.py` + `flow_tracker.py` toward the full 80-feature set.

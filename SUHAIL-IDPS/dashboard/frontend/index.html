@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SUHAIL IDPS &middot; Live Console</title>
+  <title>SUHAIL IDPS · Live Console</title>
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
@@ -12,11 +12,11 @@
     <aside>
       <div class="brand">
         <div class="mark">ID</div>
-        <div>SUHAIL IDPS<small>Three-barrier AI defence</small></div>
+        <div>SUHAIL IDPS<small>Flow-based three-barrier AI</small></div>
       </div>
 
       <nav class="nav">
-        <a href="#overview" class="active"><span class="ic">▦</span> Overview</a>
+        <a href="#overview" class="active"><span class="ic">◫</span> Overview</a>
         <a href="#live"><span class="ic">≋</span> Live Traffic</a>
         <a href="#alerts"><span class="ic">⚠</span> Alerts <span class="pip">0</span></a>
         <a href="#sources"><span class="ic">⌖</span> Sources &amp; Blocking <span class="pip">0</span></a>
@@ -28,10 +28,13 @@
         <span class="dot live-dot">●</span><span class="live-text">Connecting</span>
       </div>
 
-      <div class="side-foot">
-        <div>Routine &middot; Context &middot; Zero-day</div>
-        <div>XGBoost / Transformer / Autoencoder</div>
-        <div style="margin-top:8px" id="captureInfo">Capture idle</div>
+      <div class="side-card">
+        <div><b style="color:var(--muted)">Barriers</b></div>
+        <div>1 · Routine — XGBoost</div>
+        <div>2 · Context — Transformer</div>
+        <div>3 · Zero-day — Autoencoder</div>
+        <div id="engineTag"></div>
+        <div style="margin-top:10px" id="captureInfo">Capture idle</div>
       </div>
     </aside>
 
@@ -42,43 +45,43 @@
         <div class="topbar">
           <div>
             <h1>Live Intrusion Detection &amp; Prevention</h1>
-            <div class="subtitle">Routine classifier, session transformer and anomaly detector in one live decision stream.</div>
+            <div class="subtitle">Bidirectional flows scored by a routine classifier, a context transformer and a zero-day anomaly detector — one live decision stream.</div>
           </div>
           <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text">Connecting</span></div>
         </div>
 
         <div class="metrics">
-          <div class="metric"><label>Total packets</label><strong id="ovTotal">0</strong><span id="ovPpm">0 pkt/min</span></div>
-          <div class="metric good"><label>Normal</label><strong id="ovNormal">0</strong><span id="ovUptime">0m uptime</span></div>
-          <div class="metric warn"><label>Suspicious</label><strong id="ovSuspicious">0</strong><span>Under review</span></div>
-          <div class="metric bad"><label>Attacks</label><strong id="ovAttacks">0</strong><span id="ovAttackRate">0% attack rate</span></div>
-          <div class="metric"><label>Blocked</label><strong id="ovBlocked">0</strong><span>Active entries</span></div>
+          <div class="metric"><label>◷ Total flows</label><strong id="ovTotal">0</strong><span id="ovPpm">0 flows/min</span></div>
+          <div class="metric good"><label>✓ Normal</label><strong id="ovNormal">0</strong><span id="ovUptime">0m uptime</span></div>
+          <div class="metric warn"><label>◐ Suspicious</label><strong id="ovSuspicious">0</strong><span>Under review</span></div>
+          <div class="metric bad"><label>✕ Attacks</label><strong id="ovAttacks">0</strong><span id="ovAttackRate">0% attack rate</span></div>
+          <div class="metric"><label>⛔ Blocked</label><strong id="ovBlocked">0</strong><span>Active entries</span></div>
         </div>
 
         <section class="panel">
           <div class="panel-header">
             <h2>Three-Barrier AI Decision</h2>
-            <span class="status-pill" id="ovLastDecision">No packets yet</span>
+            <span class="status-pill" id="ovLastDecision">No flows yet</span>
           </div>
           <div class="panel-body">
             <div class="barriers">
               <div class="barrier waiting" id="ovRoutineCard">
                 <span class="mode-tag model" id="ovRoutineMode">model</span>
-                <h3>Routine</h3><div class="role">XGBoost &middot; per-packet</div>
+                <div class="b-icon">⚡</div><h3>Routine</h3><div class="role">XGBoost · per-flow classifier</div>
                 <div class="score" id="ovRoutineScore">--</div>
                 <div class="meter"><div id="ovRoutineMeter"></div></div>
                 <div class="meta-row"><span id="ovRoutineState">Waiting</span><span id="ovRoutineLatency">0 ms</span></div>
               </div>
               <div class="barrier waiting" id="ovContextCard">
                 <span class="mode-tag model" id="ovContextMode">model</span>
-                <h3>Context</h3><div class="role">Transformer &middot; broader view</div>
+                <div class="b-icon">◈</div><h3>Context</h3><div class="role">Transformer · flow sequence</div>
                 <div class="score" id="ovContextScore">--</div>
                 <div class="meter"><div id="ovContextMeter"></div></div>
                 <div class="meta-row"><span id="ovContextState">Waiting</span><span id="ovContextLatency">0 ms</span></div>
               </div>
               <div class="barrier waiting" id="ovZeroCard">
                 <span class="mode-tag model" id="ovZeroMode">model</span>
-                <h3>Zero-day</h3><div class="role">Autoencoder &middot; anomaly</div>
+                <div class="b-icon">☢</div><h3>Zero-day</h3><div class="role">Autoencoder · anomaly</div>
                 <div class="score" id="ovZeroScore">--</div>
                 <div class="meter"><div id="ovZeroMeter"></div></div>
                 <div class="meta-row"><span id="ovZeroState">Waiting</span><span id="ovZeroLatency">0 ms</span></div>
@@ -89,8 +92,11 @@
 
         <section class="grid two">
           <div class="panel">
-            <div class="panel-header"><h2>Threat Timeline</h2><span class="status-pill" id="ovSequenceState">Flow ctx 0/50</span></div>
-            <div class="panel-body"><canvas class="chart" id="ovTimeline"></canvas></div>
+            <div class="panel-header"><h2>Threat Timeline</h2><span class="status-pill" id="ovSequenceState">Host ctx 0/16</span></div>
+            <div class="panel-body">
+              <canvas class="chart" id="ovTimeline"></canvas>
+              <div class="legend"><span><i style="background:#34d399"></i>safe</span><span><i style="background:#fbbf45"></i>elevated</span><span><i style="background:#f87171"></i>threat</span></div>
+            </div>
           </div>
           <div class="panel">
             <div class="panel-header"><h2>Protocol Mix</h2></div>
@@ -99,7 +105,7 @@
         </section>
 
         <section class="panel">
-          <div class="panel-header"><h2>Model Health</h2><span class="hint">Live engine status</span></div>
+          <div class="panel-header"><h2>Model Health</h2><span class="hint">live engine status</span></div>
           <div class="panel-body"><div class="grid three" id="ovModelHealth"></div></div>
         </section>
       </section>
@@ -107,19 +113,19 @@
       <!-- ---------------------- LIVE TRAFFIC ---------------------- -->
       <section class="page" id="page-live">
         <div class="topbar">
-          <div><h1>Live Traffic</h1><div class="subtitle">Capture from any interface, replay datasets, and inspect every scored packet.</div></div>
+          <div><h1>Live Traffic</h1><div class="subtitle">Capture from any interface, replay synthetic flows, and inspect every scored flow.</div></div>
           <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text">Connecting</span></div>
         </div>
 
         <section class="grid even">
           <div class="panel">
-            <div class="panel-header"><h2>Live Capture (this machine)</h2><span class="hint">root required</span></div>
+            <div class="panel-header"><h2>Live Capture · this machine</h2><span class="hint">root required</span></div>
             <div class="panel-body">
               <div class="form-grid">
                 <div class="field">
-                  <label for="ifaceSelect">Interface</label>
+                  <label for="ifaceSelect">Interface (packet source)</label>
                   <select id="ifaceSelect"><option value="">All interfaces</option></select>
-                  <div class="help">Source of packets to be live-checked</div>
+                  <div class="help">Where packets are captured and assembled into flows</div>
                 </div>
                 <div class="field">
                   <label for="protoFilterSelect">Protocol filter</label>
@@ -131,15 +137,15 @@
                   <div class="help">Only capture packets from this source</div>
                 </div>
               </div>
-              <div class="toolbar" style="margin-top:14px">
-                <button class="primary" id="startCapture">Start Capture</button>
-                <button id="stopCapture">Stop Capture</button>
+              <div class="toolbar" style="margin-top:16px">
+                <button class="primary" id="startCapture">▶ Start Capture</button>
+                <button id="stopCapture">■ Stop</button>
               </div>
             </div>
           </div>
 
           <div class="panel">
-            <div class="panel-header"><h2>Dataset Replay</h2><span class="hint">demo / test traffic</span></div>
+            <div class="panel-header"><h2>Flow Replay</h2><span class="hint">synthetic demo traffic</span></div>
             <div class="panel-body">
               <div class="form-grid">
                 <div class="field">
@@ -147,42 +153,43 @@
                   <select id="profileSelect"><option value="mixed">Mixed</option><option value="attack">Attack only</option><option value="normal">Normal only</option></select>
                 </div>
                 <div class="field">
-                  <label for="speedInput">Speed (pkt/s)</label>
-                  <input id="speedInput" type="number" min="1" max="500" value="25" />
+                  <label for="speedInput">Speed (flows/s)</label>
+                  <input id="speedInput" type="number" min="1" max="500" value="30" />
                 </div>
               </div>
-              <div class="toolbar" style="margin-top:14px">
-                <button class="accent" id="startReplay">Start Replay</button>
-                <button id="stopReplay">Stop Replay</button>
+              <div class="toolbar" style="margin-top:16px">
+                <button class="accent" id="startReplay">▶ Start Replay</button>
+                <button id="stopReplay">■ Stop</button>
               </div>
+              <div class="help" style="margin-top:10px">Replays real flows from <span class="mono">data/flows/all_flows.csv</span> if present, else generates normal + attack flows (port-scan, SYN/UDP flood, slow-DoS).</div>
             </div>
           </div>
         </section>
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Live Packet Events</h2>
+            <h2>Live Flow Events</h2>
             <div class="toolbar">
-              <input id="eventSourceFilter" placeholder="Filter source IP" style="max-width:170px" />
-              <select id="eventFilterSelect" style="max-width:160px">
+              <input id="eventSourceFilter" placeholder="Filter source IP" style="max-width:160px" />
+              <select id="eventFilterSelect" style="max-width:150px">
                 <option value="all">All statuses</option>
                 <option value="ATTACK">Attacks</option>
                 <option value="SUSPICIOUS">Suspicious</option>
                 <option value="NORMAL">Normal</option>
                 <option value="UNKNOWN">Unknown</option>
               </select>
-              <button id="pauseToggle" class="ghost">Pause</button>
-              <button id="exportEvents" class="ghost">Export</button>
+              <button id="pauseToggle" class="ghost sm">Pause</button>
+              <button id="exportEvents" class="ghost sm">⭳ Export</button>
             </div>
           </div>
           <div class="panel-body">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Time</th><th>Status</th><th>Source</th><th>Destination</th><th>Proto</th><th>Threat</th><th>Reason</th><th>Action</th></tr></thead>
+                <thead><tr><th>Time</th><th>Status</th><th>Source</th><th>Destination</th><th>Proto</th><th>Pkts</th><th>Threat</th><th>Reason</th><th>Action</th></tr></thead>
                 <tbody id="liveEventsBody"></tbody>
               </table>
             </div>
-            <div class="help" style="margin-top:8px">Tip: click a row to drill into that flow's barrier-by-barrier history.</div>
+            <div class="help" style="margin-top:9px">Click a flow to drill into its barrier-by-barrier history and feature breakdown. Italic rows are interim (open) flows.</div>
           </div>
         </section>
       </section>
@@ -227,12 +234,12 @@
       <section class="page" id="page-models">
         <div class="topbar">
           <div><h1>Models</h1><div class="subtitle">The three barriers, how they're running, and the active thresholds.</div></div>
-          <button id="reloadModels" class="ghost">Reload Models</button>
+          <button id="reloadModels" class="ghost">↻ Reload Models</button>
         </div>
         <div class="panel" id="modelsBanner" style="display:none;border-color:#5b4a8f">
           <div class="panel-body" style="display:flex;gap:12px;align-items:center">
             <span class="mode-tag surrogate">surrogate</span>
-            <span>One or more barriers are running in <b>surrogate</b> mode (dependency-free approximation). Install TensorFlow + XGBoost and hit <b>Reload Models</b> to switch to the trained neural models. See <span class="mono">TODOS.md</span>.</span>
+            <span>One or more barriers run in <b>surrogate</b> mode (dependency-free approximation on flow features). Collect data &amp; train (see <span class="mono">DATA_COLLECTION.md</span>), install XGBoost + TensorFlow, then <b>Reload Models</b> to serve the trained models.</span>
           </div>
         </div>
         <section class="grid three" id="modelsHealth"></section>
@@ -241,9 +248,10 @@
             <div class="panel-header"><h2>Engine Configuration</h2></div>
             <div class="panel-body">
               <div class="kpi-inline" style="flex-direction:column;gap:12px">
-                <div>Sequence length: <b id="modelSeqLen">--</b></div>
-                <div>Transformer context: <b id="modelPadEarly">--</b></div>
-                <div>Feature order:<br><span class="mono" id="modelFeatures" style="color:var(--muted)"></span></div>
+                <div>Feature space: <b id="modelFeatureCount">--</b> flow features</div>
+                <div>Context window: <b id="modelSeqLen">--</b> flows/host</div>
+                <div>Early context: <b id="modelPadEarly">--</b></div>
+                <div>Features:<br><span class="mono muted" id="modelFeatures" style="font-size:11px"></span></div>
               </div>
             </div>
           </div>
@@ -267,7 +275,7 @@
             <div class="form-grid">
               <div class="field"><label for="setXgbSuspicious">XGB suspicious</label><input id="setXgbSuspicious" type="number" min="0" max="1" step="0.01" /><div class="help">Routine warn level</div></div>
               <div class="field"><label for="setXgbAttack">XGB attack</label><input id="setXgbAttack" type="number" min="0" max="1" step="0.01" /><div class="help">Routine hard-block level</div></div>
-              <div class="field"><label for="setTransformer">Transformer</label><input id="setTransformer" type="number" min="0" max="1" step="0.01" /><div class="help">Session attack level</div></div>
+              <div class="field"><label for="setTransformer">Transformer</label><input id="setTransformer" type="number" min="0" max="1" step="0.01" /><div class="help">Sequence attack level</div></div>
               <div class="field"><label for="setAutoencoder">Autoencoder</label><input id="setAutoencoder" type="number" min="0" step="0.001" /><div class="help">Reconstruction-error cutoff</div></div>
             </div>
           </div>
@@ -277,12 +285,12 @@
           <div class="panel-header"><h2>Prevention Policy</h2><span class="hint">response &amp; blocking</span></div>
           <div class="panel-body">
             <div class="form-grid">
-              <label class="toggle">Auto-block offenders <input type="checkbox" id="setAutoBlock" /></label>
-              <label class="toggle">Dry-run (simulate, no iptables) <input type="checkbox" id="setDryRun" /></label>
+              <label class="toggle">Auto-block offenders <span class="switch"><input type="checkbox" id="setAutoBlock" /><span class="slider"></span></span></label>
+              <label class="toggle">Dry-run (simulate) <span class="switch"><input type="checkbox" id="setDryRun" /><span class="slider"></span></span></label>
               <div class="field"><label for="setBlockThreshold">Block after N alerts</label><input id="setBlockThreshold" type="number" min="1" /></div>
               <div class="field"><label for="setBlockDuration">Block duration (sec)</label><input id="setBlockDuration" type="number" min="10" /></div>
             </div>
-            <div class="help" style="margin-top:12px">When dry-run is off, blocks run real <span class="mono">iptables -A INPUT -s &lt;ip&gt; -j DROP</span> rules and the backend must run as root.</div>
+            <div class="help" style="margin-top:14px">When dry-run is off, blocks run real <span class="mono">iptables -A INPUT -s &lt;ip&gt; -j DROP</span> rules and the backend must run as root.</div>
           </div>
         </section>
       </section>
@@ -292,13 +300,12 @@
   <!-- flow drill-down modal -->
   <div class="modal-backdrop" id="flowModal">
     <div class="modal">
-      <div class="panel-header"><h2 class="mono" id="flowTitle" style="font-size:13px"></h2><button class="ghost" id="flowClose">Close</button></div>
+      <div class="panel-header"><h2 class="mono" id="flowTitle" style="font-size:13px"></h2><button class="ghost sm" id="flowClose">Close</button></div>
       <div class="panel-body" id="flowBody"></div>
     </div>
   </div>
 
   <div class="toasts" id="toasts"></div>
-
   <script src="app.js"></script>
 </body>
 </html>

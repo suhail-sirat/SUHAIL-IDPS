@@ -243,11 +243,11 @@
       $("ovSuspicious").textContent = s.suspicious;
       $("ovAttacks").textContent = s.attacks;
       $("ovBlocked").textContent = s.blocked_count;
-      $("ovPpm").textContent = `${s.packets_per_minute} pkt/min`;
+      $("ovPpm").textContent = `${s.packets_per_minute} flows/min`;
       $("ovAttackRate").textContent = `${pct(s.attack_rate)} attack rate`;
       $("ovUptime").textContent = `${Math.floor(s.uptime_seconds / 60)}m uptime`;
       // protocol mix
-      const colors = { ICMP: "#ef6666", TCP: "#67b7dc", UDP: "#4fc37b" };
+      const colors = { ICMP: "#f87171", TCP: "#56b6e6", UDP: "#34d399" };
       const entries = Object.entries(s.by_protocol || {})
         .sort((a, b) => b[1] - a[1]).slice(0, 6)
         .map(([k, v]) => ({ label: k, value: v, color: colors[k] || "#7c5cff" }));
@@ -263,7 +263,7 @@
     const pillEl = $("ovLastDecision");
     if (pillEl) pillEl.innerHTML = `<span class="badge ${r.status.toLowerCase()}">${r.status}</span> ${pct(r.threat_score)}`;
     const seq = $("ovSequenceState");
-    if (seq) seq.textContent = `Flow ctx ${r.sequence.length}/${r.sequence.target_length}${r.sequence.padded ? " (early)" : ""}`;
+    if (seq) seq.textContent = `Host ctx ${r.sequence.length}/${r.sequence.target_length}${r.sequence.padded ? " (early)" : ""}`;
     renderBarriers(r, "ov");
     lineChart("ovTimeline", state.timeline, { dots: true });
   }
@@ -286,19 +286,23 @@
         const md = e.metadata || {};
         const act = e.action || {};
         const flow = e.result.flow_key || "";
-        return `<tr class="clickable" data-flow="${escapeHtml(flow)}">
+        const pkts = (e.flow && e.flow.total_packets) ? Math.round(e.flow.total_packets) : "--";
+        const atk = md.attack_type ? ` <span class="tag">${escapeHtml(md.attack_type)}</span>` : "";
+        const rowCls = `clickable${e.final === false ? " interim" : ""}${st === "ATTACK" ? " row-attack" : st === "SUSPICIOUS" ? " row-suspicious" : ""}`;
+        return `<tr class="${rowCls}" data-flow="${escapeHtml(flow)}">
           <td>${timeStr(e.timestamp)}</td>
           <td><span class="badge ${st.toLowerCase()}">${st}</span></td>
-          <td class="mono">${escapeHtml(md.src_ip || md.source || "unknown")}</td>
+          <td class="mono">${escapeHtml(md.src_ip || md.source || "unknown")}${atk}</td>
           <td class="mono">${escapeHtml(md.dst_ip || "unknown")}</td>
           <td>${escapeHtml(String(md.protocol || "ip"))}</td>
+          <td>${pkts}</td>
           <td>${pct(e.result.threat_score)}</td>
           <td>${escapeHtml(e.result.reason)}</td>
           <td>${escapeHtml(act.type || "observe")}</td>
         </tr>`;
       })
       .join("");
-    tbody.innerHTML = rows || `<tr><td colspan="8" class="empty">No matching events yet.</td></tr>`;
+    tbody.innerHTML = rows || `<tr><td colspan="9" class="empty">No matching events yet.</td></tr>`;
   }
 
   // ---------------------------------------------------------------- ALERTS
@@ -384,6 +388,7 @@
   function renderModels() {
     if (!state.health) return;
     const e = state.health.engine;
+    const fc = $("modelFeatureCount"); if (fc) fc.textContent = (e.feature_order || []).length;
     $("modelSeqLen").textContent = e.sequence_len;
     $("modelPadEarly").textContent = e.transformer_pad_early ? "Enabled (early reads)" : "Strict (full window)";
     $("modelFeatures").textContent = e.feature_order.join(", ");
@@ -441,20 +446,36 @@
     modal.classList.add("open");
     try {
       const items = await api(`/api/flow/${encodeURIComponent(flowKey)}`);
-      $("flowBody").innerHTML = items.length
-        ? `<div class="table-wrap"><table><thead><tr><th>Time</th><th>Status</th><th>Threat</th><th>XGB</th><th>Transformer</th><th>AE</th><th>Reason</th></tr></thead><tbody>${
-            items.reverse().map((e) => {
-              const b = e.result.barriers;
-              return `<tr><td>${timeStr(e.timestamp)}</td>
-                <td><span class="badge ${e.result.status.toLowerCase()}">${e.result.status}</span></td>
-                <td>${pct(e.result.threat_score)}</td>
-                <td>${fmt(b.routine_xgboost?.score, 3)}</td>
-                <td>${fmt(b.context_transformer?.score, 3)}</td>
-                <td>${fmt(b.zero_day_autoencoder?.score, 5)}</td>
-                <td>${escapeHtml(e.result.reason)}</td></tr>`;
-            }).join("")
-          }</tbody></table></div>`
-        : `<div class="empty">No recent packets for this flow.</div>`;
+      if (!items.length) {
+        $("flowBody").innerHTML = `<div class="empty">No recent flows for this host.</div>`;
+        return;
+      }
+      // feature breakdown of the most recent flow in this host history
+      const latest = items[items.length - 1];
+      const f = latest.flow || {};
+      const keyFeats = [
+        ["total_packets", "Packets", 0], ["total_bytes", "Bytes", 0],
+        ["flow_duration", "Duration s", 3], ["flow_pkts_per_s", "Pkts/s", 1],
+        ["down_up_ratio", "Down/Up", 2], ["syn_flag_count", "SYN", 0],
+        ["rst_flag_count", "RST", 0], ["pkt_len_mean", "Avg len", 0],
+      ];
+      const breakdown = keyFeats.map(([k, lbl, d]) =>
+        `<div class="flow-cell"><label>${lbl}</label><b>${fmt(f[k], d)}</b></div>`).join("");
+      const history = `<div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Time</th><th>Status</th><th>Threat</th><th>XGB</th><th>Transformer</th><th>AE</th><th>Reason</th></tr></thead><tbody>${
+          [...items].reverse().map((e) => {
+            const b = e.result.barriers;
+            return `<tr><td>${timeStr(e.timestamp)}</td>
+              <td><span class="badge ${e.result.status.toLowerCase()}">${e.result.status}</span></td>
+              <td>${pct(e.result.threat_score)}</td>
+              <td>${fmt(b.routine_xgboost?.score, 3)}</td>
+              <td>${fmt(b.context_transformer?.score, 3)}</td>
+              <td>${fmt(b.zero_day_autoencoder?.score, 5)}</td>
+              <td>${escapeHtml(e.result.reason)}</td></tr>`;
+          }).join("")
+        }</tbody></table></div>`;
+      $("flowBody").innerHTML =
+        `<div class="section-title" style="color:var(--muted);font-size:11px;text-transform:uppercase;margin-bottom:10px">Latest flow features</div>
+         <div class="flow-grid">${breakdown}</div>${history}`;
     } catch (err) {
       $("flowBody").innerHTML = `<div class="empty">Could not load flow.</div>`;
     }
@@ -464,9 +485,20 @@
   async function loadHealth() {
     state.health = await api("/api/health");
     setCaptureReplayButtons();
+    renderEngineTag();
     if (state.route === "models") renderModels();
     if (state.route === "settings") renderSettings();
     renderModelHealthList("ovModelHealth");
+  }
+
+  function renderEngineTag() {
+    const tag = $("engineTag");
+    if (!tag || !state.health) return;
+    const modes = Object.values(state.health.engine.models).map((m) => m.mode);
+    const allModel = modes.every((m) => m === "model");
+    const cls = allModel ? "model" : "surrogate";
+    const label = allModel ? "trained models" : "surrogate mode";
+    tag.innerHTML = `<span class="engine-tag mode-tag ${cls}">● ${label}</span>`;
   }
 
   async function loadStats() {
