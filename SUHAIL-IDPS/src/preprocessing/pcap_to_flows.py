@@ -82,34 +82,95 @@ def iter_packets(pcap_path: Path):
             }
 
 
+class AttackLabeler:
+    """Rule-based flow labeller (time + IP + port windowed labelling).
+
+    This is how CIC-IDS2017/UNSW-NB15-style datasets are built: a capture is
+    never labelled wholesale. A flow is marked as attack only if it matches the
+    known attack signature (attacker <-> victim, on the victim port(s), inside
+    the attack time window). Everything else in the same PCAP - the occasional
+    background/normal flow that inevitably shows up - stays benign (label 0).
+
+    When ``victim_ip`` is None the labeller is disabled and every flow gets the
+    file-level ``attack_label`` (the old wholesale behaviour, fine for pure
+    single-service captures).
+    """
+
+    def __init__(
+        self,
+        attack_label: int,
+        victim_ip: str | None = None,
+        attacker_ip: str | None = None,
+        victim_ports: set[int] | None = None,
+        window: tuple[float, float] | None = None,
+    ):
+        self.attack_label = attack_label
+        self.victim_ip = victim_ip
+        self.attacker_ip = attacker_ip
+        self.victim_ports = victim_ports or set()
+        self.window = window
+
+    @property
+    def enabled(self) -> bool:
+        return self.victim_ip is not None
+
+    def label_for(self, flow) -> int:
+        if not self.enabled:
+            return self.attack_label
+        ips = {flow.src_ip, flow.dst_ip}
+        if self.victim_ip not in ips:
+            return 0
+        if self.attacker_ip and self.attacker_ip not in ips:
+            return 0
+        if self.victim_ports and not (
+            flow.src_port in self.victim_ports or flow.dst_port in self.victim_ports
+        ):
+            return 0
+        if self.window:
+            start, end = self.window
+            if flow.last_ts < start or flow.first_ts > end:
+                return 0
+        return self.attack_label
+
+
 def convert(
     pcaps: list[Path],
     label: int,
     out_path: Path,
     attack_type: str | None,
     min_packets: int,
+    labeler: "AttackLabeler | None" = None,
 ) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     header = FLOW_FEATURES + ["src_ip", "dst_ip", "attack_type", LABEL_COLUMN]
+    labeler = labeler or AttackLabeler(label)
 
     tracker = FlowTracker()
     written = 0
     skipped = 0
+    attack_flows = 0
+    benign_flows = 0
 
     with out_path.open("w", newline="") as fh:
         writer = csv.writer(fh)
         writer.writerow(header)
 
         def emit(flow):
-            nonlocal written, skipped
+            nonlocal written, skipped, attack_flows, benign_flows
             if flow.packet_count() < min_packets:
                 skipped += 1
                 return
+            row_label = labeler.label_for(flow)
+            row_type = attack_type or "" if row_label else ""
             feats = flow.feature_row()
             writer.writerow(
-                feats + [flow.src_ip, flow.dst_ip, attack_type or "", label]
+                feats + [flow.src_ip, flow.dst_ip, row_type, row_label]
             )
             written += 1
+            if row_label:
+                attack_flows += 1
+            else:
+                benign_flows += 1
 
         for pcap in pcaps:
             print(f"[*] reading {pcap} ...")
@@ -122,7 +183,14 @@ def convert(
         for flow in tracker.flush():
             emit(flow)
 
-    print(f"[+] wrote {written} flows to {out_path} ({skipped} short flows skipped)")
+    if labeler.enabled:
+        print(
+            f"[+] wrote {written} flows to {out_path} "
+            f"({attack_flows} attack, {benign_flows} benign background, "
+            f"{skipped} short flows skipped)"
+        )
+    else:
+        print(f"[+] wrote {written} flows to {out_path} ({skipped} short flows skipped)")
     return written
 
 
@@ -139,6 +207,29 @@ def main() -> None:
         help="drop flows with fewer than this many packets (default 1: keep "
         "single-packet flows, which are the signal for port scans)",
     )
+    # -- attack-aware (windowed) labelling --------------------------------- #
+    parser.add_argument(
+        "--victim-ip",
+        default=None,
+        help="enable rule-based labelling: only flows matching the attack "
+        "signature get --label, other (background) flows get 0",
+    )
+    parser.add_argument("--attacker-ip", default=None, help="attacker host (optional)")
+    parser.add_argument(
+        "--victim-ports",
+        nargs="+",
+        type=int,
+        default=None,
+        help="attacked port(s); flows not touching these stay benign",
+    )
+    parser.add_argument("--window-start", type=float, default=None, help="epoch seconds")
+    parser.add_argument("--window-end", type=float, default=None, help="epoch seconds")
+    parser.add_argument(
+        "--meta",
+        default=None,
+        help="attack metadata JSON (from collect_attack.sh) to auto-fill the "
+        "victim/attacker/ports/window; explicit flags override it",
+    )
     args = parser.parse_args()
 
     pcaps = [Path(p) for p in args.pcap]
@@ -146,7 +237,39 @@ def main() -> None:
         if not p.exists():
             parser.error(f"pcap not found: {p}")
 
-    convert(pcaps, args.label, Path(args.out), args.attack_type, args.min_packets)
+    # metadata sidecar (optional) fills defaults; explicit flags win
+    meta = {}
+    if args.meta:
+        import json
+
+        meta = json.loads(Path(args.meta).read_text())
+
+    victim_ip = args.victim_ip or meta.get("victim_ip")
+    attacker_ip = args.attacker_ip or meta.get("attacker_ip")
+    ports = args.victim_ports or meta.get("victim_ports")
+    victim_ports = set(ports) if ports else None
+    w_start = args.window_start if args.window_start is not None else meta.get("start_ts")
+    w_end = args.window_end if args.window_end is not None else meta.get("end_ts")
+    window = (float(w_start), float(w_end)) if (w_start and w_end) else None
+    attack_type = args.attack_type or meta.get("attack_type")
+
+    labeler = AttackLabeler(
+        attack_label=args.label,
+        victim_ip=victim_ip,
+        attacker_ip=attacker_ip,
+        victim_ports=victim_ports,
+        window=window,
+    )
+    if labeler.enabled:
+        print(
+            f"[*] attack-aware labelling: victim={victim_ip} "
+            f"attacker={attacker_ip or 'any'} ports={sorted(victim_ports) if victim_ports else 'any'} "
+            f"window={'yes' if window else 'no'}"
+        )
+
+    convert(
+        pcaps, args.label, Path(args.out), attack_type, args.min_packets, labeler
+    )
 
 
 if __name__ == "__main__":

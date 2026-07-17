@@ -95,68 +95,58 @@ Stop with `Ctrl+C`. You now have one or more `normal_*.pcap` files.
 
 ---
 
-## 2. Capture ATTACK traffic
+## 2. Capture ATTACK traffic (single box, Docker victim)
 
-Capture **one PCAP per attack type** — clean labels, and you can analyse each
-attack separately later. The target is **your own IP** (`$MYIP`), so it's all one
-machine. Start the capture, run the attack in another terminal, stop the capture.
+On one machine you should **not** attack your own IP directly: the kernel routes
+traffic to your own address over **loopback** (MTU 65536, zero latency), which is
+unrealistic and would clash with your Wi-Fi-captured normal data. The clean
+single-box method is to attack a **local Docker container** as the victim — the
+traffic then crosses a real bridge interface (MTU 1500), just like real traffic.
 
-> All commands below assume you still have `IFACE` and `MYIP` set from step 0.
-> Open a **second terminal** for the attack while tcpdump runs in the first.
+`collect_attack.sh` automates all of this: it auto-detects the victim container
+and bridge, captures **one filtered PCAP per attack type**, and writes a
+**metadata JSON** next to each PCAP so the converter can label *only* the true
+attack flows (any background traffic in the same capture stays benign — the way
+CIC-IDS2017 / UNSW-NB15 are labelled).
 
+### Prereqs
 ```bash
-# generic pattern: start capture (terminal 1), run attack (terminal 2), Ctrl+C
-sudo tcpdump -i "$IFACE" -nn -s 0 ip -w captures/attack_portscan.pcap
+sudo apt install -y nmap hping3 slowhttptest      # attack tools (Kali has them; Ubuntu doesn't)
+# a victim web app on the docker bridge — e.g. a WordPress/Apache container.
+docker ps            # note the victim container name + that it's on a 172.x bridge
 ```
 
-### a) Port / service scan (nmap)
+### Run it
 ```bash
-# scanning your own machine's real IP
-nmap -sS -p 1-65535 "$MYIP"          # SYN/stealth scan
-nmap -sV -p- "$MYIP"                 # service/version scan
-nmap -sU --top-ports 200 "$MYIP"     # UDP scan
+cd SUHAIL-IDPS
+sudo ./collect_attack.sh                 # all attacks: portscan synflood udpflood icmpflood slowloris httpflood
+# or one at a time:
+sudo ./collect_attack.sh synflood
+# override auto-detection if needed:
+sudo VICTIM=172.18.0.4 IFACE=br-1fbaeb82b180 WP_CONTAINER=pen_af_wp ./collect_attack.sh
 ```
 
-### b) SYN flood / DoS (hping3)
-```bash
-sudo hping3 -S --flood -p 8000 "$MYIP"            # SYN flood (web port)
-sudo hping3 --udp --flood -p 53 "$MYIP"           # UDP flood
-sudo hping3 -1 --flood "$MYIP"                    # ICMP flood
-# let each run ~20–30s then Ctrl+C — --flood is very fast
+It produces, in `../dataset/attack/`:
 ```
-
-### c) Slow HTTP DoS (slowloris-style)
-```bash
-slowhttptest -c 500 -H -i 10 -r 200 -u "http://$MYIP:8000/"   # Slowloris
-# or: pip install slowloris && slowloris "$MYIP" -p 8000
+attack_portscan.pcap   attack_portscan.meta.json
+attack_synflood.pcap   attack_synflood.meta.json
+attack_udpflood.pcap   ...
+attack_icmpflood.pcap
+attack_slowloris.pcap
+attack_httpflood.pcap
 ```
+Each `.meta.json` records the victim/attacker IPs, attacked port(s) and the
+attack time window.
 
-### d) Brute force (hydra)
-```bash
-# needs a service to brute — ssh (sudo systemctl start ssh) or the web server
-hydra -l root -P /usr/share/wordlists/rockyou.txt "ssh://$MYIP"
-```
-
-### e) (optional) MQTT abuse, if running a broker
-```bash
-mosquitto_pub -h "$MYIP" -t x -m "$(head -c 5000 /dev/urandom | base64)" &
-```
-
-Capture **each** of these to its own file: `attack_synflood.pcap`,
-`attack_portscan.pcap`, `attack_slowloris.pcap`, `attack_bruteforce.pcap`, …
-
-> **Single-box note:** because the attacker and victim are the same machine, the
-> capture sees both the attack packets *and* the victim's replies — which is
-> exactly what a real IDPS sees, so that's fine. Keep a little normal browsing
-> going during attacks too (real captures are never 100% attack); the *attack*
-> PCAP is still labelled `1` wholesale here for simplicity.
+> **Why a container victim, not `127.0.0.1`?** Loopback traffic has a 65536-byte
+> MTU and near-zero latency, so its flow features don't resemble real network
+> traffic (and wouldn't match your normal Wi-Fi data). A Docker container sits on
+> a real L2 bridge (MTU 1500), so attack flows are realistic. No second machine
+> needed.
 >
-> **Wi-Fi gotcha:** if hping3/nmap to your own Wi-Fi IP doesn't show up in the
-> capture, your kernel may be short-circuiting same-host traffic. Two easy fixes:
-> capture on the loopback-free path by targeting the IP (already done above), or
-> if needed run the victim service in a quick container / VM bridged to the same
-> Wi-Fi and point attacks at *its* IP. For most setups targeting `$MYIP` on
-> `$IFACE` works directly.
+> **Not 100% attack — and that's correct.** Real IDS datasets keep a little
+> background traffic in attack captures and label at the *flow* level, not the
+> file level. The metadata JSON + `--meta` flag below do exactly that.
 
 ---
 
@@ -168,33 +158,44 @@ canonical feature schema. Label `0` = normal, `1` = attack.
 ```bash
 cd SUHAIL-IDPS
 
-# normal
+# normal — whole capture is benign, wholesale label 0
 python3 src/preprocessing/pcap_to_flows.py \
-    --pcap captures/normal_*.pcap --label 0 \
+    --pcap ../dataset/normal/*.pcap --label 0 \
     --out data/flows/normal_flows.csv
 
-# attacks (each with a sub-label you can inspect later, all label 1)
-python3 src/preprocessing/pcap_to_flows.py --pcap captures/attack_portscan.pcap \
-    --label 1 --attack-type portscan  --out data/flows/portscan_flows.csv
-python3 src/preprocessing/pcap_to_flows.py --pcap captures/attack_synflood.pcap \
-    --label 1 --attack-type synflood  --out data/flows/synflood_flows.csv
-python3 src/preprocessing/pcap_to_flows.py --pcap captures/attack_slowloris.pcap \
-    --label 1 --attack-type slowloris --out data/flows/slowloris_flows.csv
-python3 src/preprocessing/pcap_to_flows.py --pcap captures/attack_bruteforce.pcap \
-    --label 1 --attack-type bruteforce --out data/flows/bruteforce_flows.csv
+# attacks — windowed labelling via each capture's .meta.json:
+#   only attacker<->victim flows on the attacked port(s), inside the attack
+#   window, get label 1; background flows stay 0.
+for p in ../dataset/attack/attack_*.pcap; do
+  python3 src/preprocessing/pcap_to_flows.py \
+      --pcap "$p" --label 1 --meta "${p%.pcap}.meta.json" \
+      --out "data/flows/$(basename "${p%.pcap}").csv"
+done
 ```
 
-Merge everything into one shuffled dataset:
+> Without a Docker victim you *can* still label wholesale (`--label 1` with no
+> `--meta`), or pass the signature by hand:
+> `--victim-ip <ip> --attacker-ip <ip> --victim-ports 80 443`.
+
+Merge everything into one shuffled dataset (normal + every attack CSV).
+
+> ⚠️ **Balance the flood attacks.** A SYN/UDP flood uses a new source port per
+> packet, so it explodes into *tens of thousands* of 1-packet flows that would
+> swamp the normal class and the other attacks (a real run here gave ~65k SYN
+> flows vs ~960 slowloris vs 1 ICMP). Use `--cap-per-attack` to subsample each
+> attack type to a sane size — standard practice for flow-based DoS data.
 
 ```bash
 python3 src/preprocessing/merge_flows.py \
-    --in data/flows/normal_flows.csv \
-         data/flows/portscan_flows.csv \
-         data/flows/synflood_flows.csv \
-         data/flows/slowloris_flows.csv \
-         data/flows/bruteforce_flows.csv \
-    --out data/flows/all_flows.csv
+    --in data/flows/normal_flows.csv data/flows/attack_*.csv \
+    --out data/flows/all_flows.csv \
+    --cap-per-attack 2500        # each attack_type -> <= 2500 flows
+    # optional: --cap-normal 8000   to also cap the benign side
 ```
+
+The merge prints the before/after attack breakdown and the final attack:normal
+ratio so you can see the balance. (Note: an ICMP flood is inherently a *single*
+flow — no ports to separate it — so that class stays tiny; that's expected.)
 
 Build the per-host **sequences** for the transformer barrier:
 
