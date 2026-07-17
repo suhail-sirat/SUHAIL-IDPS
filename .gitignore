@@ -17,3 +17,5 @@ SUHAIL-IDPS/logs/*.log
 SUHAIL-IDPS/data/flows/*.csv
 SUHAIL-IDPS/captures/*.pcap
 SUHAIL-IDPS/models/**/*.keras
+
+dataset/
