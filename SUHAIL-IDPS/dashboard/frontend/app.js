@@ -31,6 +31,28 @@
     v === null || v === undefined || Number.isNaN(Number(v)) ? "--" : Number(v).toFixed(d);
   const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`;
   const timeStr = (iso) => new Date(iso).toLocaleTimeString();
+
+  // Attack-type label + confidence for a scored result (null when not hostile).
+  function attackInfo(result) {
+    const at = result && result.attack_type;
+    if (!at || !at.type) return null;
+    const label = String(at.type).toUpperCase();
+    const conf = at.confidence === undefined || at.confidence === null ? null : Number(at.confidence);
+    const src = at.source || "";
+    return { label, conf, src };
+  }
+  // A barrier score shown as a percentage. XGB + transformer are probabilities;
+  // the autoencoder is a reconstruction-error (MSE) so it's normalised against
+  // its own threshold into an "anomaly level" instead of a raw x100.
+  function barrierPct(barrier, key) {
+    const s = barrier.score;
+    if (s === null || s === undefined) return "--";
+    if (key === "zero") {
+      const thr = Math.max(Number(barrier.threshold || 0), 1e-9);
+      return `${Math.round(Math.min(Number(s) / (thr * 2), 1) * 100)}%`;
+    }
+    return `${Math.round(Math.min(Math.max(Number(s), 0), 1) * 100)}%`;
+  }
   const escapeHtml = (s) =>
     String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -92,10 +114,27 @@
 
     const status = event.result.status;
     if ((status === "ATTACK" || status === "SUSPICIOUS") && event.source !== "api") {
-      const sev = event.result.severity || "";
+      const info = attackInfo(event.result);
+      const typeChip = info
+        ? ` &middot; <span class="atk">${escapeHtml(info.label)}</span>${info.conf !== null ? ` <span class="atk-conf">${pct(info.conf)}</span>` : ""}`
+        : "";
+      const src = escapeHtml(event.metadata.src_ip || "unknown");
+      const dst = escapeHtml(event.metadata.dst_ip || "?");
       toast(
-        `<b>${status}</b> ${escapeHtml(event.metadata.src_ip || "unknown")} &rarr; ${escapeHtml(event.metadata.dst_ip || "?")}<br><span class="mono">${escapeHtml(event.result.reason)}</span>`,
+        `<div class="toast-head"><b>${status}</b>${typeChip}<span class="toast-time">${escapeHtml(timeStr(event.timestamp))}</span></div>
+         <div class="mono" style="margin:3px 0">${src} &rarr; ${dst}</div>
+         <span class="mono" style="color:var(--muted)">${escapeHtml(event.result.reason)}</span>`,
         status.toLowerCase()
+      );
+    }
+    // Distinct heads-up when the prevention policy auto-blocks a source.
+    const act = event.action || {};
+    if (act.type === "block" && act.auto) {
+      toast(
+        `<div class="toast-head"><b>AUTO-BLOCKED</b><span class="toast-time">${escapeHtml(timeStr(event.timestamp))}</span></div>
+         <div class="mono">${escapeHtml(event.metadata.src_ip || "source")}</div>
+         <span class="mono" style="color:var(--muted)">${escapeHtml(act.message || "")}</span>`,
+        "attack"
       );
     }
     // live re-render only the active page's volatile bits
@@ -221,7 +260,10 @@
       const cls = st === "alert" ? "alert" : st === "pass" ? "pass" : st === "unavailable" ? "unavailable" : "waiting";
       card.className = `barrier ${cls}`;
       const setT = (suffix, val) => { const n = $(`${id}${suffix}`); if (n) n.textContent = val; };
-      setT("Score", fmt(score, key === "zero" ? 5 : 3));
+      // Primary read is a percentage; keep the raw score on hover for detail.
+      setT("Score", barrierPct(barrier, key));
+      const scoreNode = $(`${id}Score`);
+      if (scoreNode) scoreNode.title = `raw ${fmt(score, key === "zero" ? 5 : 3)}${key === "zero" ? " MSE" : " prob"}`;
       const meter = $(`${id}Meter`); if (meter) meter.style.width = `${meterPct}%`;
       setT("State", barrier.state || "WAITING");
       setT("Latency", `${fmt(barrier.latency_ms, 1)} ms`);
@@ -287,7 +329,8 @@
         const act = e.action || {};
         const flow = e.result.flow_key || "";
         const pkts = (e.flow && e.flow.total_packets) ? Math.round(e.flow.total_packets) : "--";
-        const atk = md.attack_type ? ` <span class="tag">${escapeHtml(md.attack_type)}</span>` : "";
+        const info = attackInfo(e.result);
+        const atk = info ? ` <span class="tag">${escapeHtml(info.label)}</span>` : "";
         const rowCls = `clickable${e.final === false ? " interim" : ""}${st === "ATTACK" ? " row-attack" : st === "SUSPICIOUS" ? " row-suspicious" : ""}`;
         return `<tr class="${rowCls}" data-flow="${escapeHtml(flow)}">
           <td>${timeStr(e.timestamp)}</td>
@@ -320,10 +363,11 @@
         <td class="mono">${escapeHtml(a.src_ip)}</td>
         <td class="mono">${escapeHtml(a.dst_ip)}</td>
         <td>${escapeHtml(String(a.protocol))}</td>
+        <td>${a.attack_type ? `<span class="tag">${escapeHtml(String(a.attack_type).toUpperCase())}</span>` : "--"}</td>
         <td>${pct(a.threat_score)}</td>
         <td>${escapeHtml(a.reason)}</td>
       </tr>`).join("");
-    tbody.innerHTML = rows || `<tr><td colspan="8" class="empty">No alerts yet.</td></tr>`;
+    tbody.innerHTML = rows || `<tr><td colspan="9" class="empty">No alerts yet.</td></tr>`;
     $("alertsCount").textContent = state.alerts.length;
   }
 
@@ -396,10 +440,20 @@
     const anySurrogate = Object.values(e.models).some((m) => m.mode === "surrogate");
     const banner = $("modelsBanner");
     if (banner) banner.style.display = anySurrogate ? "block" : "none";
-    // threshold display
+    // threshold display — probabilities shown as %, autoencoder as raw MSE
     const th = e.thresholds;
+    const asDisplay = (k, v) =>
+      k === "autoencoder" ? `${fmt(v, 4)} MSE` : `${pct(v)} (${fmt(v, 2)})`;
     $("modelThresholds").innerHTML = Object.entries(th).map(([k, v]) =>
-      `<div class="list-item"><div class="row"><strong>${k}</strong><span class="mono">${v}</span></div></div>`).join("");
+      `<div class="list-item"><div class="row"><strong>${k}</strong><span class="mono">${asDisplay(k, v)}</span></div></div>`).join("");
+    // attack-typing route (A heuristic vs B trained model)
+    const at = e.attack_typer;
+    const atNode = $("modelAttackTyper");
+    if (atNode && at) {
+      atNode.innerHTML =
+        `Route <b>${escapeHtml(at.route || (at.mode === "model" ? "B" : "A"))}</b> ` +
+        `<span class="mode-tag ${at.mode === "model" ? "model" : "surrogate"}">${escapeHtml(at.mode)}</span>`;
+    }
   }
 
   // ---------------------------------------------------------------- SETTINGS

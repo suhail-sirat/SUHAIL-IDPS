@@ -33,6 +33,7 @@ from typing import Any
 import numpy as np
 
 from src.core import config
+from src.core.attack_types import AttackTypeScorer
 from src.core.config import settings
 from src.core.flow_features import FLOW_FEATURES, NUM_FEATURES
 from src.core.scorers import AnomalyScorer, ContextScorer, RoutineScorer, health_of
@@ -59,6 +60,7 @@ class DecisionEngine:
         self.routine = RoutineScorer()
         self.context = ContextScorer()
         self.anomaly = AnomalyScorer()
+        self.attack_typer = AttackTypeScorer()
 
     # -- thresholds proxy --------------------------------------------------- #
     @property
@@ -73,6 +75,7 @@ class DecisionEngine:
             self.routine = RoutineScorer()
             self.context = ContextScorer()
             self.anomaly = AnomalyScorer()
+            self.attack_typer = AttackTypeScorer()
         return self.health()
 
     def health(self) -> dict[str, Any]:
@@ -87,6 +90,7 @@ class DecisionEngine:
                 "autoencoder": health_of(self.anomaly),
                 "transformer": health_of(self.context),
             },
+            "attack_typer": self.attack_typer.health(),
         }
 
     # -- host history bookkeeping ------------------------------------------ #
@@ -158,12 +162,14 @@ class DecisionEngine:
             xgb_score, ae_score, transformer_score, transformer_padded
         )
         threat_score = self._threat_score(xgb_score, ae_score, transformer_score)
+        attack_type = self._attack_type(status, features, metadata)
 
         return {
             "status": status,
             "severity": severity,
             "reason": reason,
             "threat_score": threat_score,
+            "attack_type": attack_type,
             "flow_key": host,
             "sequence": {
                 "required": needs_context,
@@ -214,6 +220,20 @@ class DecisionEngine:
         if score is None:
             return waiting_text if error == "waiting for sequence context" else "UNAVAILABLE"
         return "ALERT" if score >= threshold else "PASS"
+
+    def _attack_type(self, status, features, metadata) -> dict[str, Any] | None:
+        """Name the archetype for a hostile flow (None for NORMAL/UNKNOWN).
+
+        If the flow carries a ground-truth ``attack_type`` (labelled replay /
+        dataset), that is reported verbatim; otherwise the classifier (Route B
+        model when trained, else the Route A heuristic) infers it from features.
+        """
+        if status not in ("ATTACK", "SUSPICIOUS"):
+            return None
+        truth = (metadata or {}).get("attack_type")
+        if truth:
+            return {"type": str(truth), "confidence": 1.0, "source": "labeled"}
+        return self.attack_typer.classify(features)
 
     def _decide(self, xgb, ae, tr, padded) -> tuple[str, str, str]:
         th = settings.thresholds

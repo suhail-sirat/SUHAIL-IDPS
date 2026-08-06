@@ -482,6 +482,7 @@ def record_event(event: dict[str, Any]) -> None:
                     "dst_ip": metadata.get("dst_ip", "unknown"),
                     "protocol": str(protocol),
                     "threat_score": event["result"]["threat_score"],
+                    "attack_type": (event["result"].get("attack_type") or {}).get("type"),
                     "reason": event["result"]["reason"],
                     "flow_key": event["result"].get("flow_key"),
                     "action": event["action"].get("type"),
@@ -521,11 +522,36 @@ def maybe_respond(metadata: dict[str, Any], result: dict[str, Any]) -> dict[str,
         return {"type": "observe", "message": "Below response threshold."}
 
     SOURCE_ALERTS[source_ip] += 1
-    if policy["auto_block"] and SOURCE_ALERTS[source_ip] >= int(policy["block_threshold"]):
-        return block_ip(source_ip, reason=f"{SOURCE_ALERTS[source_ip]} alerts")
+    count = SOURCE_ALERTS[source_ip]
+    threshold = max(int(policy["block_threshold"]), 1)
+
+    # Already enforced — count the alert but don't stack duplicate iptables rules.
+    if source_ip in BLOCKED:
+        return {
+            "type": "blocked",
+            "message": f"{source_ip} already blocked ({count} alerts).",
+            "alerts": count,
+        }
+
+    # Auto-block once this source has crossed the N-alert policy.
+    if policy["auto_block"] and count >= threshold:
+        action = block_ip(source_ip, reason=f"auto-block: {count} alerts ≥ {threshold}")
+        action["auto"] = True
+        action["alerts"] = count
+        action["threshold"] = threshold
+        return action
+
+    remaining = max(threshold - count, 0)
+    tail = (
+        f" · auto-block in {remaining} more alert(s)."
+        if policy["auto_block"]
+        else " · auto-block off."
+    )
     return {
         "type": "watch",
-        "message": f"{SOURCE_ALERTS[source_ip]} alert(s) from source.",
+        "message": f"{count}/{threshold} alert(s) from source{tail}",
+        "alerts": count,
+        "threshold": threshold,
     }
 
 
@@ -653,6 +679,8 @@ def _replay_from_csv(csv_path: Path, profile: str, speed: float, limit: int) -> 
             "src_port": 0,
             "dst_port": int(features.get("dst_port", 0)),
             "label": "attack-replay" if is_attack else "normal-replay",
+            # carry the dataset's ground-truth attack type through to the engine
+            "attack_type": str(row.get("attack_type", "") or "") if is_attack else "",
         }
         process_flow(features, metadata=meta, source=meta["label"])
         emitted += 1

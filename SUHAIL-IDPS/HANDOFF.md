@@ -6,16 +6,24 @@ from inside the `SUHAIL-IDPS/` folder (the one with `run.sh`).
 Right now the 3 models are untrained, so the system runs in **surrogate mode** (a
 fallback). Training them switches it to the real models.
 
-## 1. Train the three models
+> Deeper guides: **[GUIDE_SETUP_AND_TRAINING.md](GUIDE_SETUP_AND_TRAINING.md)**
+> (training, attack types / Route A↔B, auto-block) and
+> **[GUIDE_DASHBOARD.md](GUIDE_DASHBOARD.md)** (every page explained).
+
+## 1. Train the models
 
 ```bash
-python3 src/training/train_xgboost.py     --data data/flows/all_flows.csv
-python3 src/training/train_autoencoder.py --data data/flows/all_flows.csv
-python3 src/training/train_transformer.py --data data/flows/flow_sequences.csv
+python3 src/training/train_xgboost.py      --data data/flows/all_flows.csv
+python3 src/training/train_autoencoder.py  --data data/flows/all_flows.csv
+python3 src/training/train_transformer.py  --data data/flows/flow_sequences.csv
+python3 src/training/train_attack_type.py  --data data/flows/all_flows.csv  # attack-type naming (Route B)
 ```
 
 Each saves into `models/…` and **overwrites the old model automatically** — no
-manual replacing needed.
+manual replacing needed. The last one is new: it names *which kind* of attack a
+flow is. Until you train it, the system already names attacks with a built-in
+heuristic (Route A) — training just upgrades that to a learned model (Route B),
+picked up automatically on **Reload Models**.
 
 ## 2. Run
 

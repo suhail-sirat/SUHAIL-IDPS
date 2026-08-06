@@ -32,6 +32,14 @@ XGB_MODEL_PATH = MODELS_DIR / "xgboost" / "xgb_model.pkl"
 XGB_SCALER_PATH = MODELS_DIR / "xgboost" / "xgb_scaler.pkl"
 XGB_FEATURES_PATH = MODELS_DIR / "xgboost" / "xgb_features.pkl"
 
+# Route B: optional multi-class attack-type classifier (see
+# src/training/train_attack_type.py). When these exist and xgboost is installed,
+# the engine names the attack from the model; otherwise it uses the Route A
+# heuristic in src/core/attack_types.py.
+XGB_TYPE_MODEL_PATH = MODELS_DIR / "xgboost" / "xgb_type_model.pkl"
+XGB_TYPE_SCALER_PATH = MODELS_DIR / "xgboost" / "xgb_type_scaler.pkl"
+XGB_TYPE_LABELS_PATH = MODELS_DIR / "xgboost" / "xgb_type_labels.pkl"
+
 AE_MODEL_PATH = MODELS_DIR / "autoencoder" / "autoencoder.keras"
 AE_MODEL_PATH_H5 = MODELS_DIR / "autoencoder" / "autoencoder.h5"
 AE_SCALER_PATH = MODELS_DIR / "autoencoder" / "ae_scaler.pkl"

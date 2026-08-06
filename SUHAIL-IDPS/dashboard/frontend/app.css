@@ -284,6 +284,12 @@ tr.interim td { opacity: .62; font-style: italic; }
 .toast { background: var(--panel-2); border: 1px solid var(--line-2); border-left: 3px solid var(--info); padding: 12px 15px; border-radius: var(--radius-sm); box-shadow: var(--shadow); max-width: 360px; font-size: 13px; animation: slidein .22s ease; }
 .toast.attack { border-left-color: var(--bad); }
 .toast.suspicious { border-left-color: var(--warn); }
+.toast-head { display: flex; align-items: center; gap: 7px; }
+.toast-head b { letter-spacing: .03em; }
+.toast-head .toast-time { margin-left: auto; color: var(--muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.atk { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--bad-dim); color: #ffc2c2; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.toast.suspicious .atk { background: var(--warn-dim); color: #ffd58a; }
+.atk-conf { color: var(--muted); font-size: 11px; font-weight: 600; }
 @keyframes slidein { from { transform: translateX(34px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .kpi-inline { display: flex; gap: 20px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
