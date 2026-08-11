@@ -1,3 +1,45 @@
+/* ================================ FONTS ================================
+ * Self-hosted WOFF2 (converted from dashboard/../fonts/*.ttf) so the console
+ * renders identically on a machine with no fonts installed — including an
+ * air-gapped sensor. font-display:swap keeps text visible while they load.
+ *
+ * Coverage matters here: B Nazanin, B Zar and Shabnam are Persian-only faces —
+ * they have none of the Pashto letters (ټ ډ ړ ږ ښ ګ ڼ ې ۍ ځ څ ۀ). Pashto
+ * therefore gets Noto Naskh Arabic, which covers both scripts fully. Dari uses
+ * B Nazanin as its primary face; see --font-ui per [data-locale] below.
+ *
+ * size-adjust values normalise apparent size against Noto Naskh Arabic (the
+ * reference face), measured from the baseline body letters ب س ن م. Without it
+ * B Nazanin reads ~17% smaller than Pashto at the same px and the two locales
+ * look like different type scales.
+ */
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.woff2") format("woff2");
+             font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Bold.woff2") format("woff2");
+             font-weight: 700 900; font-style: normal; font-display: swap; }
+
+/* B Nazanin ships regular only — the browser synthesises the heavier weights,
+   which is how this face is normally seen in Persian documents. */
+@font-face { font-family: "B Nazanin"; src: url("fonts/BNazanin-Regular.woff2") format("woff2");
+             font-weight: 400; font-style: normal; font-display: swap; size-adjust: 120%; }
+@font-face { font-family: "B Zar"; src: url("fonts/BZar-Regular.woff2") format("woff2");
+             font-weight: 400; font-style: normal; font-display: swap; size-adjust: 108%; }
+@font-face { font-family: "B Zar"; src: url("fonts/BZar-Bold.woff2") format("woff2");
+             font-weight: 700 900; font-style: normal; font-display: swap; size-adjust: 108%; }
+@font-face { font-family: "Shabnam"; src: url("fonts/Shabnam-Regular.woff2") format("woff2");
+             font-weight: 400; font-style: normal; font-display: swap; size-adjust: 109%; }
+@font-face { font-family: "Shabnam"; src: url("fonts/Shabnam-Bold.woff2") format("woff2");
+             font-weight: 700 900; font-style: normal; font-display: swap; size-adjust: 109%; }
+
+/* Pashto-capable, and the only bundled face that is. */
+@font-face { font-family: "Noto Naskh Arabic"; src: url("fonts/NotoNaskhArabic-Regular.woff2") format("woff2");
+             font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Naskh Arabic"; src: url("fonts/NotoNaskhArabic-Bold.woff2") format("woff2");
+             font-weight: 700 900; font-style: normal; font-display: swap; }
+
+@font-face { font-family: "Sofia"; src: url("fonts/Sofia-Regular.woff2") format("woff2");
+             font-weight: 400; font-style: normal; font-display: swap; }
+
 :root {
   color-scheme: dark;
   --bg: #0a0e13;
@@ -28,6 +70,53 @@
   --shadow: 0 10px 34px rgba(0,0,0,.34);
   --shadow-sm: 0 3px 12px rgba(0,0,0,.22);
   --grad-accent: linear-gradient(135deg, #8b6dff, #56b6e6);
+  /* The dashboard's icons (◫ ≋ ⌖ ◈ ◐ ◷ ☢ ⚙ ⚡ ⛔ ✕ ⭳) live in no text face —
+     not Inter, not Noto. This chain is appended to every stack so they resolve
+     to a real glyph on Windows / macOS / Linux instead of a tofu box. */
+  --font-symbols: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2",
+                  "Noto Sans Symbols", "DejaVu Sans";
+  /* Latin UI face; Dari/Pashto swap in their own stacks per [data-locale] below. */
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+             var(--font-symbols), sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Per-locale Arabic-script stacks, keyed on [data-locale] (set by i18n.js)
+   rather than [dir=rtl], because Dari and Pashto need different primaries —
+   see the coverage note in the @font-face block above.
+
+   Inter sits directly behind the Arabic primary in every RTL stack. Font
+   fallback is per-character, so Arabic runs resolve to the Arabic face while
+   Latin runs (XGB, iptables, data/flows/all_flows.csv) resolve to Inter —
+   the same Latin the English locale uses. This matters most for Pashto:
+   Noto Naskh Arabic ships no Latin glyphs at all, so without Inter every
+   Latin token would land on an arbitrary system font.
+
+   ORDER IS LOAD-BEARING: html[dir=rtl] and html[data-locale=…] have equal
+   specificity, so the generic rule must come first or it wins the cascade. */
+
+/* Baseline for any RTL locale, including ones added later. */
+html[dir="rtl"] {
+  --font-ui: "Noto Naskh Arabic", Inter, Tahoma, "Segoe UI",
+             var(--font-symbols), Arial, sans-serif;
+}
+
+/* Dari — B Nazanin primary, as requested. Inter takes the Latin; Shabnam and
+   B Zar cover the few Arabic marks B Nazanin lacks (e.g. U+0654 ٔ hamza above),
+   with Noto Naskh Arabic as the final Arabic backstop. */
+html[data-locale="fa-AF"] {
+  --font-ui: "B Nazanin", Inter, "Shabnam", "B Zar", "Noto Naskh Arabic",
+             Tahoma, "Segoe UI", var(--font-symbols), Arial, sans-serif;
+}
+
+/* Pashto — Noto Naskh Arabic first. B Nazanin / Shabnam / B Zar are deliberately
+   NOT listed ahead of it: they contain none of the Pashto letters
+   (ټ ډ ړ ږ ښ ګ ڼ ې ۍ ځ څ ۀ), so leading with them would split single words
+   across two faces and break the cursive joins. To use a different Pashto face,
+   add it at the front of this list — nothing else needs to change. */
+html[data-locale="ps"] {
+  --font-ui: "Noto Naskh Arabic", Inter, "Noto Sans Arabic",
+             Tahoma, "Segoe UI", var(--font-symbols), Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -39,10 +128,12 @@ body {
     radial-gradient(900px 480px at 10% 0%, rgba(139,109,255,.10), transparent 55%),
     linear-gradient(180deg, var(--bg-grad-1), var(--bg-grad-2) 40%);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
 }
+/* Arabic script sits lower and needs more leading than Latin at the same size. */
+html[dir="rtl"] body { font-size: 14.5px; line-height: 1.7; }
 a { color: var(--info); text-decoration: none; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #2a3543; border-radius: 8px; border: 2px solid var(--panel); }
@@ -83,7 +174,7 @@ input:focus, select:focus { outline: none; border-color: var(--info); box-shadow
 .app { display: grid; grid-template-columns: 256px minmax(0,1fr); min-height: 100vh; }
 
 aside {
-  border-right: 1px solid var(--line);
+  border-inline-end: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(20,27,36,.7), rgba(10,14,19,.7));
   backdrop-filter: blur(8px);
   padding: 20px 14px;
@@ -110,7 +201,7 @@ aside {
 .nav a:hover { background: var(--panel); color: var(--text); }
 .nav a.active { background: linear-gradient(90deg, rgba(139,109,255,.18), rgba(86,182,230,.08)); color: #fff; box-shadow: inset 2px 0 0 var(--info); }
 .nav a .pip {
-  margin-left: auto; min-width: 22px; text-align: center;
+  margin-inline-start: auto; min-width: 22px; text-align: center;
   font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
   background: #2a3543; color: var(--muted);
 }
@@ -151,7 +242,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; }
   box-shadow: var(--shadow-sm); transition: transform .12s ease, border-color .12s ease;
 }
 .metric:hover { transform: translateY(-2px); border-color: var(--line-2); }
-.metric::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--info); }
+.metric::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 3px; background: var(--info); }
 .metric.good::before { background: var(--good); } .metric.warn::before { background: var(--warn); } .metric.bad::before { background: var(--bad); }
 .metric label { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12.5px; margin-bottom: 12px; font-weight: 600; }
 .metric strong { display: block; font-size: 32px; line-height: 1; font-weight: 800; letter-spacing: -.02em; overflow-wrap: anywhere; }
@@ -199,7 +290,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; }
 .barrier.waiting .meter div { background: var(--warn); }
 .meta-row { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; margin-top: 10px; }
 .mode-tag {
-  position: absolute; top: 14px; right: 14px; font-size: 10px; font-weight: 800;
+  position: absolute; top: 14px; inset-inline-end: 14px; font-size: 10px; font-weight: 800;
   letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; text-transform: uppercase;
 }
 .mode-tag.model { background: var(--good-dim); color: #a8efc2; }
@@ -216,7 +307,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; }
 /* ---------------- tables ---------------- */
 .table-wrap { max-height: 540px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { border-bottom: 1px solid var(--line); padding: 11px 12px; text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+th, td { border-bottom: 1px solid var(--line); padding: 11px 12px; text-align: start; vertical-align: middle; overflow-wrap: anywhere; }
 th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; background: #121821; position: sticky; top: 0; z-index: 1; }
 tbody tr { transition: background .1s ease; }
 tbody tr:hover { background: #1b232d; }
@@ -265,7 +356,7 @@ tr.interim td { opacity: .62; font-style: italic; }
 .switch { position: relative; width: 44px; height: 24px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .switch .slider { position: absolute; inset: 0; background: #313c48; border-radius: 999px; transition: .2s; }
-.switch .slider::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+.switch .slider::before { content: ""; position: absolute; height: 18px; width: 18px; inset-inline-start: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
 .switch input:checked + .slider { background: var(--info); }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 
@@ -280,13 +371,13 @@ tr.interim td { opacity: .62; font-style: italic; }
 .modal { width: min(880px, 96vw); max-height: 88vh; overflow: auto; background: var(--panel); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: var(--shadow); }
 
 /* ---------------- toast ---------------- */
-.toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 11px; z-index: 60; }
-.toast { background: var(--panel-2); border: 1px solid var(--line-2); border-left: 3px solid var(--info); padding: 12px 15px; border-radius: var(--radius-sm); box-shadow: var(--shadow); max-width: 360px; font-size: 13px; animation: slidein .22s ease; }
-.toast.attack { border-left-color: var(--bad); }
-.toast.suspicious { border-left-color: var(--warn); }
+.toasts { position: fixed; inset-inline-end: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 11px; z-index: 60; }
+.toast { background: var(--panel-2); border: 1px solid var(--line-2); border-inline-start: 3px solid var(--info); padding: 12px 15px; border-radius: var(--radius-sm); box-shadow: var(--shadow); max-width: 360px; font-size: 13px; animation: slidein .22s ease; }
+.toast.attack { border-inline-start-color: var(--bad); }
+.toast.suspicious { border-inline-start-color: var(--warn); }
 .toast-head { display: flex; align-items: center; gap: 7px; }
 .toast-head b { letter-spacing: .03em; }
-.toast-head .toast-time { margin-left: auto; color: var(--muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.toast-head .toast-time { margin-inline-start: auto; color: var(--muted-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .atk { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--bad-dim); color: #ffc2c2; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
 .toast.suspicious .atk { background: var(--warn-dim); color: #ffd58a; }
 .atk-conf { color: var(--muted); font-size: 11px; font-weight: 600; }
@@ -294,16 +385,65 @@ tr.interim td { opacity: .62; font-style: italic; }
 
 .kpi-inline { display: flex; gap: 20px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
 .kpi-inline b { color: var(--text); }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .muted { color: var(--muted); }
 .flow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 9px; }
 .flow-cell { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
 .flow-cell label { display: block; color: var(--muted-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
 .flow-cell b { font-size: 14px; font-weight: 700; }
 
+/* ---------------- language switcher ---------------- */
+.lang-switch { display: grid; gap: 6px; }
+.lang-switch label {
+  color: var(--muted-2); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.lang-switch select {
+  min-height: 34px; font-size: 13px; font-weight: 600;
+  background: var(--panel); border-color: var(--line-2);
+}
+
+/* ---------------- RTL (Dari / Pashto) ----------------
+   Everything directional that CSS logical properties can't mirror on their own:
+   inset box-shadows, transforms, keyframes, and bidi isolation for the
+   Latin/technical runs (IPs, ports, feature names, thresholds). */
+[dir="rtl"] .nav a.active { box-shadow: inset -2px 0 0 var(--info); }
+[dir="rtl"] tbody tr.row-attack { box-shadow: inset -3px 0 0 var(--bad); }
+[dir="rtl"] tbody tr.row-suspicious { box-shadow: inset -3px 0 0 var(--warn); }
+[dir="rtl"] .switch input:checked + .slider::before { transform: translateX(-20px); }
+[dir="rtl"] .toast { animation-name: slidein-rtl; }
+@keyframes slidein-rtl { from { transform: translateX(-34px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Technical text stays left-to-right inside right-to-left prose. Isolation (not
+   a bare direction flip) keeps "10.0.0.5 → 10.0.0.9" and mixed cells intact. */
+[dir="rtl"] .mono { direction: ltr; unicode-bidi: isolate; }
+[dir="rtl"] td.mono, [dir="rtl"] .list-item strong.mono,
+[dir="rtl"] #modelFeatures, [dir="rtl"] .toast .mono { text-align: right; }
+/* …but a translated chip nested in a mono cell reverts to RTL. */
+[dir="rtl"] .mono .tag, [dir="rtl"] .mono .atk, [dir="rtl"] .mono .badge { direction: rtl; unicode-bidi: isolate; }
+/* Percentages, counts and latencies read as isolated numeric runs. */
+[dir="rtl"] .metric strong, [dir="rtl"] .barrier .score, [dir="rtl"] .nav a .pip { unicode-bidi: isolate; }
+/* Canvas charts render their own Latin labels — never mirror them. */
+[dir="rtl"] .chart { direction: ltr; }
+
+/* Arabic script is cursive: tracking (positive or negative) pulls the joined
+   letterforms apart and renders Dari/Pashto as disconnected glyphs. Reset it
+   everywhere the Latin design applied it — the ".mono" runs keep theirs. */
+[dir="rtl"] h1,
+[dir="rtl"] th,
+[dir="rtl"] .mode-tag,
+[dir="rtl"] .metric strong,
+[dir="rtl"] .barrier .score,
+[dir="rtl"] .flow-cell label,
+[dir="rtl"] .atk,
+[dir="rtl"] .toast-head b,
+[dir="rtl"] .side-card .engine-tag,
+[dir="rtl"] .lang-switch label,
+[dir="rtl"] .section-title { letter-spacing: normal; }
+
 @media (max-width: 1080px) {
   .app { grid-template-columns: 1fr; }
-  aside { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  aside { position: static; height: auto; border-inline-end: 0; border-bottom: 1px solid var(--line); }
   .grid.two, .grid.even, .grid.three, .barriers { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) { main { padding: 14px; } h1 { font-size: 21px; } }

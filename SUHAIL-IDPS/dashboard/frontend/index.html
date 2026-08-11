@@ -1,10 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SUHAIL IDPS · Live Console</title>
   <link rel="stylesheet" href="app.css" />
+  <!-- i18n must run before first paint so <html dir> is set without an LTR flash -->
+  <script src="i18n.js"></script>
 </head>
 <body>
   <div class="app">
@@ -12,29 +14,34 @@
     <aside>
       <div class="brand">
         <div class="mark">ID</div>
-        <div>SUHAIL IDPS<small>Flow-based three-barrier AI</small></div>
+        <div><span data-i18n="brand.name">SUHAIL IDPS</span><small data-i18n="brand.tagline">Flow-based three-barrier AI</small></div>
+      </div>
+
+      <div class="lang-switch">
+        <label for="langSelect" data-i18n="lang.label">Language</label>
+        <select id="langSelect" data-lang-switcher></select>
       </div>
 
       <nav class="nav">
-        <a href="#overview" class="active"><span class="ic">◫</span> Overview</a>
-        <a href="#live"><span class="ic">≋</span> Live Traffic</a>
-        <a href="#alerts"><span class="ic">⚠</span> Alerts <span class="pip">0</span></a>
-        <a href="#sources"><span class="ic">⌖</span> Sources &amp; Blocking <span class="pip">0</span></a>
-        <a href="#models"><span class="ic">◈</span> Models</a>
-        <a href="#settings"><span class="ic">⚙</span> Settings</a>
+        <a href="#overview" class="active"><span class="ic">◫</span> <span data-i18n="nav.overview">Overview</span></a>
+        <a href="#live"><span class="ic">≋</span> <span data-i18n="nav.live">Live Traffic</span></a>
+        <a href="#alerts"><span class="ic">⚠</span> <span data-i18n="nav.alerts">Alerts</span> <span class="pip">0</span></a>
+        <a href="#sources"><span class="ic">⌖</span> <span data-i18n="nav.sources">Sources &amp; Blocking</span> <span class="pip">0</span></a>
+        <a href="#models"><span class="ic">◈</span> <span data-i18n="nav.models">Models</span></a>
+        <a href="#settings"><span class="ic">⚙</span> <span data-i18n="nav.settings">Settings</span></a>
       </nav>
 
       <div class="status-pill" style="justify-content:center">
-        <span class="dot live-dot">●</span><span class="live-text">Connecting</span>
+        <span class="dot live-dot">●</span><span class="live-text" data-i18n="live.connecting">Connecting</span>
       </div>
 
       <div class="side-card">
-        <div><b style="color:var(--muted)">Barriers</b></div>
-        <div>1 · Routine — XGBoost</div>
-        <div>2 · Context — Transformer</div>
-        <div>3 · Zero-day — Autoencoder</div>
+        <div><b style="color:var(--muted)" data-i18n="side.barriers">Barriers</b></div>
+        <div data-i18n="side.barrier1">1 · Routine — XGBoost</div>
+        <div data-i18n="side.barrier2">2 · Context — Transformer</div>
+        <div data-i18n="side.barrier3">3 · Zero-day — Autoencoder</div>
         <div id="engineTag"></div>
-        <div style="margin-top:10px" id="captureInfo">Capture idle</div>
+        <div style="margin-top:10px" id="captureInfo" data-i18n="side.captureIdle">Capture idle</div>
       </div>
     </aside>
 
@@ -44,47 +51,47 @@
       <section class="page active" id="page-overview">
         <div class="topbar">
           <div>
-            <h1>Live Intrusion Detection &amp; Prevention</h1>
-            <div class="subtitle">Bidirectional flows scored by a routine classifier, a context transformer and a zero-day anomaly detector — one live decision stream.</div>
+            <h1 data-i18n="ov.title">Live Intrusion Detection &amp; Prevention</h1>
+            <div class="subtitle" data-i18n="ov.subtitle">Bidirectional flows scored by a routine classifier, a context transformer and a zero-day anomaly detector — one live decision stream.</div>
           </div>
-          <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text">Connecting</span></div>
+          <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text" data-i18n="live.connecting">Connecting</span></div>
         </div>
 
         <div class="metrics">
-          <div class="metric"><label>◷ Total flows</label><strong id="ovTotal">0</strong><span id="ovPpm">0 flows/min</span></div>
-          <div class="metric good"><label>✓ Normal</label><strong id="ovNormal">0</strong><span id="ovUptime">0m uptime</span></div>
-          <div class="metric warn"><label>◐ Suspicious</label><strong id="ovSuspicious">0</strong><span>Under review</span></div>
-          <div class="metric bad"><label>✕ Attacks</label><strong id="ovAttacks">0</strong><span id="ovAttackRate">0% attack rate</span></div>
-          <div class="metric"><label>⛔ Blocked</label><strong id="ovBlocked">0</strong><span>Active entries</span></div>
+          <div class="metric"><label><span class="ic">◷</span> <span data-i18n="ov.totalFlows">Total flows</span></label><strong id="ovTotal">0</strong><span id="ovPpm">--</span></div>
+          <div class="metric good"><label><span class="ic">✓</span> <span data-i18n="ov.normal">Normal</span></label><strong id="ovNormal">0</strong><span id="ovUptime">--</span></div>
+          <div class="metric warn"><label><span class="ic">◐</span> <span data-i18n="ov.suspicious">Suspicious</span></label><strong id="ovSuspicious">0</strong><span data-i18n="ov.underReview">Under review</span></div>
+          <div class="metric bad"><label><span class="ic">✕</span> <span data-i18n="ov.attacks">Attacks</span></label><strong id="ovAttacks">0</strong><span id="ovAttackRate">--</span></div>
+          <div class="metric"><label><span class="ic">⛔</span> <span data-i18n="ov.blocked">Blocked</span></label><strong id="ovBlocked">0</strong><span data-i18n="ov.activeEntries">Active entries</span></div>
         </div>
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Three-Barrier AI Decision</h2>
-            <span class="status-pill" id="ovLastDecision">No flows yet</span>
+            <h2 data-i18n="ov.decision">Three-Barrier AI Decision</h2>
+            <span class="status-pill" id="ovLastDecision" data-i18n="ov.noFlowsYet">No flows yet</span>
           </div>
           <div class="panel-body">
             <div class="barriers">
               <div class="barrier waiting" id="ovRoutineCard">
-                <span class="mode-tag model" id="ovRoutineMode">model</span>
-                <div class="b-icon">⚡</div><h3>Routine</h3><div class="role">XGBoost · per-flow classifier</div>
+                <span class="mode-tag model" id="ovRoutineMode" data-i18n="mode.model">model</span>
+                <div class="b-icon">⚡</div><h3 data-i18n="barrier.routine">Routine</h3><div class="role" data-i18n="barrier.routineRole">XGBoost · per-flow classifier</div>
                 <div class="score" id="ovRoutineScore">--</div>
                 <div class="meter"><div id="ovRoutineMeter"></div></div>
-                <div class="meta-row"><span id="ovRoutineState">Waiting</span><span id="ovRoutineLatency">0 ms</span></div>
+                <div class="meta-row"><span id="ovRoutineState" data-i18n="state.WAITING">Waiting</span><span id="ovRoutineLatency">--</span></div>
               </div>
               <div class="barrier waiting" id="ovContextCard">
-                <span class="mode-tag model" id="ovContextMode">model</span>
-                <div class="b-icon">◈</div><h3>Context</h3><div class="role">Transformer · flow sequence</div>
+                <span class="mode-tag model" id="ovContextMode" data-i18n="mode.model">model</span>
+                <div class="b-icon">◈</div><h3 data-i18n="barrier.context">Context</h3><div class="role" data-i18n="barrier.contextRole">Transformer · flow sequence</div>
                 <div class="score" id="ovContextScore">--</div>
                 <div class="meter"><div id="ovContextMeter"></div></div>
-                <div class="meta-row"><span id="ovContextState">Waiting</span><span id="ovContextLatency">0 ms</span></div>
+                <div class="meta-row"><span id="ovContextState" data-i18n="state.WAITING">Waiting</span><span id="ovContextLatency">--</span></div>
               </div>
               <div class="barrier waiting" id="ovZeroCard">
-                <span class="mode-tag model" id="ovZeroMode">model</span>
-                <div class="b-icon">☢</div><h3>Zero-day</h3><div class="role">Autoencoder · anomaly</div>
+                <span class="mode-tag model" id="ovZeroMode" data-i18n="mode.model">model</span>
+                <div class="b-icon">☢</div><h3 data-i18n="barrier.zero">Zero-day</h3><div class="role" data-i18n="barrier.zeroRole">Autoencoder · anomaly</div>
                 <div class="score" id="ovZeroScore">--</div>
                 <div class="meter"><div id="ovZeroMeter"></div></div>
-                <div class="meta-row"><span id="ovZeroState">Waiting</span><span id="ovZeroLatency">0 ms</span></div>
+                <div class="meta-row"><span id="ovZeroState" data-i18n="state.WAITING">Waiting</span><span id="ovZeroLatency">--</span></div>
               </div>
             </div>
           </div>
@@ -92,20 +99,20 @@
 
         <section class="grid two">
           <div class="panel">
-            <div class="panel-header"><h2>Threat Timeline</h2><span class="status-pill" id="ovSequenceState">Host ctx 0/16</span></div>
+            <div class="panel-header"><h2 data-i18n="ov.timeline">Threat Timeline</h2><span class="status-pill" id="ovSequenceState">--</span></div>
             <div class="panel-body">
               <canvas class="chart" id="ovTimeline"></canvas>
-              <div class="legend"><span><i style="background:#34d399"></i>safe</span><span><i style="background:#fbbf45"></i>elevated</span><span><i style="background:#f87171"></i>threat</span></div>
+              <div class="legend"><span><i style="background:#34d399"></i><span data-i18n="legend.safe">safe</span></span><span><i style="background:#fbbf45"></i><span data-i18n="legend.elevated">elevated</span></span><span><i style="background:#f87171"></i><span data-i18n="legend.threat">threat</span></span></div>
             </div>
           </div>
           <div class="panel">
-            <div class="panel-header"><h2>Protocol Mix</h2></div>
+            <div class="panel-header"><h2 data-i18n="ov.protoMix">Protocol Mix</h2></div>
             <div class="panel-body"><canvas class="chart" id="ovProtoChart"></canvas></div>
           </div>
         </section>
 
         <section class="panel">
-          <div class="panel-header"><h2>Model Health</h2><span class="hint">live engine status</span></div>
+          <div class="panel-header"><h2 data-i18n="ov.modelHealth">Model Health</h2><span class="hint" data-i18n="ov.engineStatusHint">live engine status</span></div>
           <div class="panel-body"><div class="grid three" id="ovModelHealth"></div></div>
         </section>
       </section>
@@ -113,83 +120,93 @@
       <!-- ---------------------- LIVE TRAFFIC ---------------------- -->
       <section class="page" id="page-live">
         <div class="topbar">
-          <div><h1>Live Traffic</h1><div class="subtitle">Capture from any interface, replay synthetic flows, and inspect every scored flow.</div></div>
-          <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text">Connecting</span></div>
+          <div><h1 data-i18n="livep.title">Live Traffic</h1><div class="subtitle" data-i18n="livep.subtitle">Capture from any interface, replay synthetic flows, and inspect every scored flow.</div></div>
+          <div class="status-pill"><span class="dot live-dot">●</span><span class="live-text" data-i18n="live.connecting">Connecting</span></div>
         </div>
 
         <section class="grid even">
           <div class="panel">
-            <div class="panel-header"><h2>Live Capture · this machine</h2><span class="hint">root required</span></div>
+            <div class="panel-header"><h2 data-i18n="livep.captureTitle">Live Capture · this machine</h2><span class="hint" data-i18n="livep.rootRequired">root required</span></div>
             <div class="panel-body">
               <div class="form-grid">
                 <div class="field">
-                  <label for="ifaceSelect">Interface (packet source)</label>
-                  <select id="ifaceSelect"><option value="">All interfaces</option></select>
-                  <div class="help">Where packets are captured and assembled into flows</div>
+                  <label for="ifaceSelect" data-i18n="livep.iface">Interface (packet source)</label>
+                  <select id="ifaceSelect"><option value="" data-i18n="livep.allInterfaces">All interfaces</option></select>
+                  <div class="help" data-i18n="livep.ifaceHelp">Where packets are captured and assembled into flows</div>
                 </div>
                 <div class="field">
-                  <label for="protoFilterSelect">Protocol filter</label>
-                  <select id="protoFilterSelect"><option value="">Any</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
+                  <label for="protoFilterSelect" data-i18n="livep.protoFilter">Protocol filter</label>
+                  <select id="protoFilterSelect"><option value="" data-i18n="livep.any">Any</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
                 </div>
                 <div class="field">
-                  <label for="srcFilterInput">Source IP filter</label>
-                  <input id="srcFilterInput" placeholder="e.g. 10.0.0.5" />
-                  <div class="help">Only capture packets from this source</div>
+                  <label for="srcFilterInput" data-i18n="livep.srcFilter">Source IP filter</label>
+                  <input id="srcFilterInput" data-i18n-placeholder="livep.srcFilterPlaceholder" placeholder="e.g. 10.0.0.5" />
+                  <div class="help" data-i18n="livep.srcFilterHelp">Only capture packets from this source</div>
                 </div>
               </div>
               <div class="toolbar" style="margin-top:16px">
-                <button class="primary" id="startCapture">▶ Start Capture</button>
-                <button id="stopCapture">■ Stop</button>
+                <button class="primary" id="startCapture" data-i18n="livep.startCapture">▶ Start Capture</button>
+                <button id="stopCapture" data-i18n="livep.stop">■ Stop</button>
               </div>
             </div>
           </div>
 
           <div class="panel">
-            <div class="panel-header"><h2>Flow Replay</h2><span class="hint">synthetic demo traffic</span></div>
+            <div class="panel-header"><h2 data-i18n="livep.replayTitle">Flow Replay</h2><span class="hint" data-i18n="livep.replayHint">synthetic demo traffic</span></div>
             <div class="panel-body">
               <div class="form-grid">
                 <div class="field">
-                  <label for="profileSelect">Profile</label>
-                  <select id="profileSelect"><option value="mixed">Mixed</option><option value="attack">Attack only</option><option value="normal">Normal only</option></select>
+                  <label for="profileSelect" data-i18n="livep.profile">Profile</label>
+                  <select id="profileSelect"><option value="mixed" data-i18n="livep.profileMixed">Mixed</option><option value="attack" data-i18n="livep.profileAttack">Attack only</option><option value="normal" data-i18n="livep.profileNormal">Normal only</option></select>
                 </div>
                 <div class="field">
-                  <label for="speedInput">Speed (flows/s)</label>
+                  <label for="speedInput" data-i18n="livep.speed">Speed (flows/s)</label>
                   <input id="speedInput" type="number" min="1" max="500" value="30" />
                 </div>
               </div>
               <div class="toolbar" style="margin-top:16px">
-                <button class="accent" id="startReplay">▶ Start Replay</button>
-                <button id="stopReplay">■ Stop</button>
+                <button class="accent" id="startReplay" data-i18n="livep.startReplay">▶ Start Replay</button>
+                <button id="stopReplay" data-i18n="livep.stop">■ Stop</button>
               </div>
-              <div class="help" style="margin-top:10px">Replays real flows from <span class="mono">data/flows/all_flows.csv</span> if present, else generates normal + attack flows (port-scan, SYN/UDP flood, slow-DoS).</div>
+              <div class="help" style="margin-top:10px" data-i18n-html="livep.replayHelp">Replays real flows from <span class="mono">data/flows/all_flows.csv</span> if present, else generates normal + attack flows (port-scan, SYN/UDP flood, slow-DoS).</div>
             </div>
           </div>
         </section>
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Live Flow Events</h2>
+            <h2 data-i18n="livep.eventsTitle">Live Flow Events</h2>
             <div class="toolbar">
-              <input id="eventSourceFilter" placeholder="Filter source IP" style="max-width:160px" />
+              <input id="eventSourceFilter" data-i18n-placeholder="livep.filterSrcPlaceholder" placeholder="Filter source IP" style="max-width:160px" />
               <select id="eventFilterSelect" style="max-width:150px">
-                <option value="all">All statuses</option>
-                <option value="ATTACK">Attacks</option>
-                <option value="SUSPICIOUS">Suspicious</option>
-                <option value="NORMAL">Normal</option>
-                <option value="UNKNOWN">Unknown</option>
+                <option value="all" data-i18n="livep.allStatuses">All statuses</option>
+                <option value="ATTACK" data-i18n="statusPlural.ATTACK">Attacks</option>
+                <option value="SUSPICIOUS" data-i18n="statusPlural.SUSPICIOUS">Suspicious</option>
+                <option value="NORMAL" data-i18n="statusPlural.NORMAL">Normal</option>
+                <option value="UNKNOWN" data-i18n="statusPlural.UNKNOWN">Unknown</option>
               </select>
-              <button id="pauseToggle" class="ghost sm">Pause</button>
-              <button id="exportEvents" class="ghost sm">⭳ Export</button>
+              <button id="pauseToggle" class="ghost sm" data-i18n="livep.pause">Pause</button>
+              <button id="exportEvents" class="ghost sm" data-i18n="livep.export">⭳ Export</button>
             </div>
           </div>
           <div class="panel-body">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Time</th><th>Status</th><th>Source</th><th>Destination</th><th>Proto</th><th>Pkts</th><th>Threat</th><th>Reason</th><th>Action</th></tr></thead>
+                <thead><tr>
+                  <th data-i18n="th.time">Time</th>
+                  <th data-i18n="th.status">Status</th>
+                  <th data-i18n="th.source">Source</th>
+                  <th data-i18n="th.destination">Destination</th>
+                  <th data-i18n="th.proto">Proto</th>
+                  <th data-i18n="th.pkts">Pkts</th>
+                  <th data-i18n="th.threat">Threat</th>
+                  <th data-i18n="th.reason">Reason</th>
+                  <th data-i18n="th.action">Action</th>
+                </tr></thead>
                 <tbody id="liveEventsBody"></tbody>
               </table>
             </div>
-            <div class="help" style="margin-top:9px">Click a flow to drill into its barrier-by-barrier history and feature breakdown. Italic rows are interim (open) flows.</div>
+            <div class="help" style="margin-top:9px" data-i18n="livep.tableHelp">Click a flow to drill into its barrier-by-barrier history and feature breakdown. Italic rows are interim (open) flows.</div>
           </div>
         </section>
       </section>
@@ -197,15 +214,25 @@
       <!-- ---------------------- ALERTS ---------------------- -->
       <section class="page" id="page-alerts">
         <div class="topbar">
-          <div><h1>Alerts</h1><div class="subtitle">Every suspicious and hostile decision the barriers raised.</div></div>
-          <span class="status-pill">Total alerts: <b id="alertsCount" style="color:var(--text);margin-left:6px">0</b></span>
+          <div><h1 data-i18n="alerts.title">Alerts</h1><div class="subtitle" data-i18n="alerts.subtitle">Every suspicious and hostile decision the barriers raised.</div></div>
+          <span class="status-pill"><span data-i18n="alerts.total">Total alerts:</span> <b id="alertsCount" style="color:var(--text);margin-inline-start:6px">0</b></span>
         </div>
         <section class="panel">
-          <div class="panel-header"><h2>Alert Feed</h2><span class="hint">click a row for flow detail</span></div>
+          <div class="panel-header"><h2 data-i18n="alerts.feed">Alert Feed</h2><span class="hint" data-i18n="alerts.feedHint">click a row for flow detail</span></div>
           <div class="panel-body">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Time</th><th>Status</th><th>Severity</th><th>Source</th><th>Destination</th><th>Proto</th><th>Type</th><th>Threat</th><th>Reason</th></tr></thead>
+                <thead><tr>
+                  <th data-i18n="th.time">Time</th>
+                  <th data-i18n="th.status">Status</th>
+                  <th data-i18n="th.severity">Severity</th>
+                  <th data-i18n="th.source">Source</th>
+                  <th data-i18n="th.destination">Destination</th>
+                  <th data-i18n="th.proto">Proto</th>
+                  <th data-i18n="th.type">Type</th>
+                  <th data-i18n="th.threat">Threat</th>
+                  <th data-i18n="th.reason">Reason</th>
+                </tr></thead>
                 <tbody id="alertsBody"></tbody>
               </table>
             </div>
@@ -216,15 +243,15 @@
       <!-- ---------------------- SOURCES ---------------------- -->
       <section class="page" id="page-sources">
         <div class="topbar">
-          <div><h1>Sources &amp; Blocking</h1><div class="subtitle">Per-source intelligence and the active prevention list.</div></div>
+          <div><h1 data-i18n="src.title">Sources &amp; Blocking</h1><div class="subtitle" data-i18n="src.subtitle">Per-source intelligence and the active prevention list.</div></div>
         </div>
         <section class="grid even">
           <div class="panel">
-            <div class="panel-header"><h2>Hot Sources</h2><span class="hint">ranked by attacks</span></div>
+            <div class="panel-header"><h2 data-i18n="src.hotSources">Hot Sources</h2><span class="hint" data-i18n="src.rankedByAttacks">ranked by attacks</span></div>
             <div class="panel-body"><div class="side-list" id="sourcesList"></div></div>
           </div>
           <div class="panel">
-            <div class="panel-header"><h2>Blocked IPs</h2><span class="hint">auto + manual</span></div>
+            <div class="panel-header"><h2 data-i18n="src.blockedIps">Blocked IPs</h2><span class="hint" data-i18n="src.autoManual">auto + manual</span></div>
             <div class="panel-body"><div class="side-list" id="blockedList"></div></div>
           </div>
         </section>
@@ -233,31 +260,31 @@
       <!-- ---------------------- MODELS ---------------------- -->
       <section class="page" id="page-models">
         <div class="topbar">
-          <div><h1>Models</h1><div class="subtitle">The three barriers, how they're running, and the active thresholds.</div></div>
-          <button id="reloadModels" class="ghost">↻ Reload Models</button>
+          <div><h1 data-i18n="models.title">Models</h1><div class="subtitle" data-i18n="models.subtitle">The three barriers, how they're running, and the active thresholds.</div></div>
+          <button id="reloadModels" class="ghost" data-i18n="models.reload">↻ Reload Models</button>
         </div>
         <div class="panel" id="modelsBanner" style="display:none;border-color:#5b4a8f">
           <div class="panel-body" style="display:flex;gap:12px;align-items:center">
-            <span class="mode-tag surrogate">surrogate</span>
-            <span>One or more barriers run in <b>surrogate</b> mode (dependency-free approximation on flow features). Collect data &amp; train (see <span class="mono">DATA_COLLECTION.md</span>), install XGBoost + TensorFlow, then <b>Reload Models</b> to serve the trained models.</span>
+            <span class="mode-tag surrogate" data-i18n="mode.surrogate">surrogate</span>
+            <span data-i18n-html="models.banner">One or more barriers run in <b>surrogate</b> mode (dependency-free approximation on flow features). Collect data &amp; train (see <span class="mono">DATA_COLLECTION.md</span>), install XGBoost + TensorFlow, then <b>Reload Models</b> to serve the trained models.</span>
           </div>
         </div>
         <section class="grid three" id="modelsHealth"></section>
         <section class="grid even">
           <div class="panel">
-            <div class="panel-header"><h2>Engine Configuration</h2></div>
+            <div class="panel-header"><h2 data-i18n="models.engineConfig">Engine Configuration</h2></div>
             <div class="panel-body">
               <div class="kpi-inline" style="flex-direction:column;gap:12px">
-                <div>Feature space: <b id="modelFeatureCount">--</b> flow features</div>
-                <div>Context window: <b id="modelSeqLen">--</b> flows/host</div>
-                <div>Early context: <b id="modelPadEarly">--</b></div>
-                <div>Attack typing: <span id="modelAttackTyper">--</span></div>
-                <div>Features:<br><span class="mono muted" id="modelFeatures" style="font-size:11px"></span></div>
+                <div><span data-i18n="models.featureSpace">Feature space:</span> <b id="modelFeatureCount">--</b> <span data-i18n="models.flowFeatures">flow features</span></div>
+                <div><span data-i18n="models.contextWindow">Context window:</span> <b id="modelSeqLen">--</b> <span data-i18n="models.flowsPerHost">flows/host</span></div>
+                <div><span data-i18n="models.earlyContext">Early context:</span> <b id="modelPadEarly">--</b></div>
+                <div><span data-i18n="models.attackTyping">Attack typing:</span> <span id="modelAttackTyper">--</span></div>
+                <div><span data-i18n="models.features">Features:</span><br><span class="mono muted" id="modelFeatures" style="font-size:11px"></span></div>
               </div>
             </div>
           </div>
           <div class="panel">
-            <div class="panel-header"><h2>Active Thresholds</h2></div>
+            <div class="panel-header"><h2 data-i18n="models.activeThresholds">Active Thresholds</h2></div>
             <div class="panel-body"><div class="side-list" id="modelThresholds"></div></div>
           </div>
         </section>
@@ -266,32 +293,32 @@
       <!-- ---------------------- SETTINGS ---------------------- -->
       <section class="page" id="page-settings">
         <div class="topbar">
-          <div><h1>Settings</h1><div class="subtitle">Tune the decision thresholds and the prevention policy. Changes persist across restarts.</div></div>
-          <button class="primary" id="saveSettings">Save &amp; Persist</button>
+          <div><h1 data-i18n="set.title">Settings</h1><div class="subtitle" data-i18n="set.subtitle">Tune the decision thresholds and the prevention policy. Changes persist across restarts.</div></div>
+          <button class="primary" id="saveSettings" data-i18n="set.save">Save &amp; Persist</button>
         </div>
 
         <section class="panel">
-          <div class="panel-header"><h2>Decision Thresholds</h2><span class="hint">per barrier</span></div>
+          <div class="panel-header"><h2 data-i18n="set.thresholds">Decision Thresholds</h2><span class="hint" data-i18n="set.perBarrier">per barrier</span></div>
           <div class="panel-body">
             <div class="form-grid">
-              <div class="field"><label for="setXgbSuspicious">XGB suspicious</label><input id="setXgbSuspicious" type="number" min="0" max="1" step="0.01" /><div class="help">Routine warn level</div></div>
-              <div class="field"><label for="setXgbAttack">XGB attack</label><input id="setXgbAttack" type="number" min="0" max="1" step="0.01" /><div class="help">Routine hard-block level</div></div>
-              <div class="field"><label for="setTransformer">Transformer</label><input id="setTransformer" type="number" min="0" max="1" step="0.01" /><div class="help">Sequence attack level</div></div>
-              <div class="field"><label for="setAutoencoder">Autoencoder</label><input id="setAutoencoder" type="number" min="0" step="0.001" /><div class="help">Reconstruction-error cutoff</div></div>
+              <div class="field"><label for="setXgbSuspicious" data-i18n="set.xgbSuspicious">XGB suspicious</label><input id="setXgbSuspicious" type="number" min="0" max="1" step="0.01" /><div class="help" data-i18n="set.xgbSuspiciousHelp">Routine warn level</div></div>
+              <div class="field"><label for="setXgbAttack" data-i18n="set.xgbAttack">XGB attack</label><input id="setXgbAttack" type="number" min="0" max="1" step="0.01" /><div class="help" data-i18n="set.xgbAttackHelp">Routine hard-block level</div></div>
+              <div class="field"><label for="setTransformer" data-i18n="set.transformer">Transformer</label><input id="setTransformer" type="number" min="0" max="1" step="0.01" /><div class="help" data-i18n="set.transformerHelp">Sequence attack level</div></div>
+              <div class="field"><label for="setAutoencoder" data-i18n="set.autoencoder">Autoencoder</label><input id="setAutoencoder" type="number" min="0" step="0.001" /><div class="help" data-i18n="set.autoencoderHelp">Reconstruction-error cutoff</div></div>
             </div>
           </div>
         </section>
 
         <section class="panel">
-          <div class="panel-header"><h2>Prevention Policy</h2><span class="hint">response &amp; blocking</span></div>
+          <div class="panel-header"><h2 data-i18n="set.policy">Prevention Policy</h2><span class="hint" data-i18n="set.policyHint">response &amp; blocking</span></div>
           <div class="panel-body">
             <div class="form-grid">
-              <label class="toggle">Auto-block offenders <span class="switch"><input type="checkbox" id="setAutoBlock" /><span class="slider"></span></span></label>
-              <label class="toggle">Dry-run (simulate) <span class="switch"><input type="checkbox" id="setDryRun" /><span class="slider"></span></span></label>
-              <div class="field"><label for="setBlockThreshold">Block after N alerts</label><input id="setBlockThreshold" type="number" min="1" /></div>
-              <div class="field"><label for="setBlockDuration">Block duration (sec)</label><input id="setBlockDuration" type="number" min="10" /></div>
+              <label class="toggle"><span data-i18n="set.autoBlock">Auto-block offenders</span> <span class="switch"><input type="checkbox" id="setAutoBlock" /><span class="slider"></span></span></label>
+              <label class="toggle"><span data-i18n="set.dryRun">Dry-run (simulate)</span> <span class="switch"><input type="checkbox" id="setDryRun" /><span class="slider"></span></span></label>
+              <div class="field"><label for="setBlockThreshold" data-i18n="set.blockThreshold">Block after N alerts</label><input id="setBlockThreshold" type="number" min="1" /></div>
+              <div class="field"><label for="setBlockDuration" data-i18n="set.blockDuration">Block duration (sec)</label><input id="setBlockDuration" type="number" min="10" /></div>
             </div>
-            <div class="help" style="margin-top:14px">When dry-run is off, blocks run real <span class="mono">iptables -A INPUT -s &lt;ip&gt; -j DROP</span> rules and the backend must run as root.</div>
+            <div class="help" style="margin-top:14px" data-i18n-html="set.policyHelp">When dry-run is off, blocks run real <span class="mono">iptables -A INPUT -s &lt;ip&gt; -j DROP</span> rules and the backend must run as root.</div>
           </div>
         </section>
       </section>
@@ -301,7 +328,7 @@
   <!-- flow drill-down modal -->
   <div class="modal-backdrop" id="flowModal">
     <div class="modal">
-      <div class="panel-header"><h2 class="mono" id="flowTitle" style="font-size:13px"></h2><button class="ghost sm" id="flowClose">Close</button></div>
+      <div class="panel-header"><h2 class="mono" id="flowTitle" style="font-size:13px"></h2><button class="ghost sm" id="flowClose" data-i18n="btn.close">Close</button></div>
       <div class="panel-body" id="flowBody"></div>
     </div>
   </div>
